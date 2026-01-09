@@ -3,17 +3,18 @@ import time
 import os
 import csv
 
-# On définit les deux sources de données
 URLS = [
     {
         "type": "Voiture",
         "url": "https://portail-api-data.montpellier3m.fr/offstreetparking?limit=1000",
-        "key_places": "availableSpotNumber"  # Nom du champ JSON pour les voitures
+        "key_free": "availableSpotNumber",
+        "key_total": "totalSpotNumber"
     },
     {
         "type": "Velo",
         "url": "https://portail-api-data.montpellier3m.fr/bikestation?limit=1000",
-        "key_places": "availableBikeNumber"  # Nom du champ JSON pour les vélos
+        "key_free": "availableBikeNumber",
+        "key_total": "totalSlotNumber"
     }
 ]
 
@@ -23,45 +24,50 @@ def collecter():
     timestamp = int(time.time())
     os.makedirs("data", exist_ok=True)
     
-    # On prépare la liste des nouvelles données
     lignes_a_ecrire = []
 
     for source in URLS:
         try:
-            print(f"Récupération des données {source['type']}...")
             response = requests.get(source['url'], timeout=10)
             response.raise_for_status()
             data = response.json()
             
             for item in data:
-                # 1. Récupération du nom (gestion des structures différentes)
-                nom = item.get("name", {}).get("value") # Structure standard
+                # 1. Nom
+                nom = item.get("name", {}).get("value")
                 if not nom:
-                    # Parfois l'adresse est directement à la racine pour certains flux
-                    nom = item.get("address", {}).get("value")
+                    addr_val = item.get("address", {}).get("value")
+                    nom = addr_val.get("streetAddress", "Inconnu") if isinstance(addr_val, dict) else str(addr_val)
+                nom = str(nom).replace(";", ",").strip()
 
-                # 2. Récupération des places (clé dynamique selon vélo ou voiture)
-                places_obj = item.get(source['key_places'], {})
-                places = places_obj.get("value")
+                # 2. Places Libres
+                free_obj = item.get(source['key_free'], {})
+                places_libres = free_obj.get("value")
 
-                # 3. Validation et Ajout
-                if nom is not None and places is not None:
-                    # On ajoute le champ "type" à la ligne
-                    lignes_a_ecrire.append([timestamp, source['type'], nom, places])
+                # 3. Capacité Totale (NOUVEAU)
+                total_obj = item.get(source['key_total'], {})
+                capacite_totale = total_obj.get("value")
+
+                # 4. GPS
+                coords = item.get("location", {}).get("value", {}).get("coordinates", [None, None])
+                lon, lat = coords[0], coords[1]
+
+                # On vérifie qu'on a bien les chiffres
+                if nom and places_libres is not None and capacite_totale is not None:
+                    lignes_a_ecrire.append([timestamp, source['type'], nom, places_libres, capacite_totale, lat, lon])
                     
         except Exception as e:
             print(f"Erreur sur l'API {source['type']} : {e}")
 
-    # Écriture dans le CSV
+    # Écriture CSV
     file_exists = os.path.exists(FICHIER)
     
-    # Mode 'a' pour append (ajouter à la fin)
     with open(FICHIER, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, delimiter=";")
         
-        # Si le fichier est nouveau, on écrit l'en-tête AVEC la colonne 'type'
+        # En-tête mis à jour avec 'capacite_totale'
         if not file_exists:
-            writer.writerow(["timestamp", "type", "parking", "places_libres"])
+            writer.writerow(["timestamp", "type", "parking", "places_libres", "capacite_totale", "lat", "lon"])
             
         writer.writerows(lignes_a_ecrire)
         print(f"{len(lignes_a_ecrire)} mesures ajoutées.")
