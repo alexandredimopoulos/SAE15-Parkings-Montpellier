@@ -1,19 +1,20 @@
-name: Collecte automatique des parkings
+name: Collecte et Mise à jour du Site
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
-  workflow_dispatch:
+    - cron: "*/10 * * * *"  # S'exécute toutes les 10e minutes (00, 10, 20...)
+  workflow_dispatch:        # Permet aussi de le lancer manuellement (bouton "Run workflow")
 
 jobs:
-  collect:
+  collect-and-deploy:
     runs-on: ubuntu-latest
-
-    permissions:       # Important pour que GITHUB_TOKEN puisse pousser
+    
+    # Cette permission est critique : elle autorise le bot à modifier tes fichiers
+    permissions:
       contents: write
 
     steps:
-      - name: Cloner le dépôt
+      - name: Récupérer le code (Checkout)
         uses: actions/checkout@v4
 
       - name: Installer Python
@@ -22,21 +23,23 @@ jobs:
           python-version: "3.11"
 
       - name: Installer les dépendances
+        # On ajoute pandas et plotly pour le script de génération du site
         run: |
-          pip install requests
+          pip install requests pandas plotly
 
-      - name: Lancer la collecte
+      - name: 1. Lancer la collecte de données
+        run: python collect_once.py
+
+      - name: 2. Générer le site Web (index.html)
+        # Ce script (que je t'ai donné avant) doit exister à la racine
+        run: python generate_site.py
+
+      - name: Commit et Push des changements
         run: |
-          python collect_once.py
-
-      - name: Commit des nouvelles données
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add data/suivi_global.csv
-          git commit -m "Collecte automatique parkings" || echo "Aucune modification"
-
-      - name: Pousser les changements
-        run: |
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/alexandredimopoulos/SAE15-Parkings-Montpellier.git
-
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # On ajoute le CSV (données) ET le HTML (site)
+          git add data/suivi_global.csv index.html
+          # Le "|| echo" évite que le script plante s'il n'y a rien de nouveau
+          git commit -m "Auto-update: données et site web" || echo "Aucune modification à enregistrer"
+          git push
