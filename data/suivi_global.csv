@@ -1,0 +1,163 @@
+timestamp;type;parking;places_libres
+1767977442;Voiture;Antigone;135
+1767977442;Voiture;Comedie;339
+1767977442;Voiture;Corum;197
+1767977442;Voiture;Europa;392
+1767977442;Voiture;Foch;604
+1767977442;Voiture;Gambetta;175
+1767977442;Voiture;Gare;388
+1767977442;Voiture;Triangle;274
+1767977442;Voiture;Pitot;403
+1767977442;Voiture;Circe;971
+1767977442;Voiture;Garcia Lorca;351
+1767977442;Voiture;Mosson;176
+1767977442;Voiture;Sabines;112
+1767977442;Voiture;Sablassou;270
+1767977442;Voiture;Saint Jean Le Sec;215
+1767977442;Voiture;Euromedecine;56
+1767977442;Voiture;Occitanie;345
+1767977442;Voiture;Vicarello;21
+1767977442;Voiture;Gaumont EST;74
+1767977442;Voiture;Gaumont OUEST;5
+1767977442;Voiture;Charles de Gaulle;139
+1767977442;Voiture;Polygone;1013
+1767977442;Voiture;Arc de Triomphe;231
+1767977442;Voiture;Gaumont-Circe;199
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Rue Jules Ferry - Gare Saint-Roch'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Comédie'};9
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Hôtel de Ville'};11
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Corum'};2
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Place Albert 1er - St Charles'};10
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Foch'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Halles Castellane'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Observatoire'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Rondelet'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Plan Cabanes'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Boutonnet'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Emile Combes'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Beaux-Arts'};11
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Les Aubes'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Antigone centre'};8
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Médiathèque Emile Zola'};6
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Nombre d Or'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Louis Blanc'};8
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Gambetta'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Port Marianne'};9
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Les Arceaux'};2
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Cité Mion'};6
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Nouveau Saint-Roch'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Renouvier'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Odysseum'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Saint-Denis'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Richter'};7
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Charles Flahault'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Voltaire'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Prés d Arènes'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Garcia Lorca'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Vert Bois'};6
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Malbosc'};1
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Occitanie'};11
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'FacdesSciences'};8
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Fac de Lettres'};7
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Aiguelongue'};6
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jeu de Mail des Abbés'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Euromédecine'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Marie Caizergues'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Sabines'};1
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Celleneuve'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jardin de la Lironde'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Père Soulas'};6
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Place Viala'};5
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Hôtel du Département'};1
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Tonnelles'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Parvis Jules Ferry - Gare Saint-Roch'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Pont de Lattes - Gare Saint-Roch'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Deux Ponts - Gare Saint-Roch'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Providence - Ovalie'};1
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Pérols Etang de l Or'};41
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Albert 1er - Cathédrale'};4
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Saint-Guilhem - Courreau'};3
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Sud De France'};2
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Comedie Baudin'};0
+1767977442;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jean de Beins'};6
+1767978269;Voiture;Antigone;136
+1767978269;Voiture;Comedie;341
+1767978269;Voiture;Corum;200
+1767978269;Voiture;Europa;396
+1767978269;Voiture;Foch;605
+1767978269;Voiture;Gambetta;171
+1767978269;Voiture;Gare;388
+1767978269;Voiture;Triangle;274
+1767978269;Voiture;Pitot;403
+1767978269;Voiture;Circe;991
+1767978269;Voiture;Garcia Lorca;356
+1767978269;Voiture;Mosson;181
+1767978269;Voiture;Sabines;121
+1767978269;Voiture;Sablassou;275
+1767978269;Voiture;Saint Jean Le Sec;218
+1767978269;Voiture;Euromedecine;59
+1767978269;Voiture;Occitanie;359
+1767978269;Voiture;Vicarello;24
+1767978269;Voiture;Gaumont EST;74
+1767978269;Voiture;Gaumont OUEST;5
+1767978269;Voiture;Charles de Gaulle;142
+1767978269;Voiture;Polygone;1013
+1767978269;Voiture;Arc de Triomphe;231
+1767978269;Voiture;Gaumont-Circe;199
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Rue Jules Ferry - Gare Saint-Roch'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Comédie'};9
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Hôtel de Ville'};11
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Corum'};2
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Place Albert 1er - St Charles'};10
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Foch'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Halles Castellane'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Observatoire'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Rondelet'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Plan Cabanes'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Boutonnet'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Emile Combes'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Beaux-Arts'};11
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Les Aubes'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Antigone centre'};8
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Médiathèque Emile Zola'};6
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Nombre d Or'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Louis Blanc'};8
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Gambetta'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Port Marianne'};9
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Les Arceaux'};2
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Cité Mion'};6
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Nouveau Saint-Roch'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Renouvier'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Odysseum'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Saint-Denis'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Richter'};7
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Charles Flahault'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Voltaire'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Prés d Arènes'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Garcia Lorca'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Vert Bois'};6
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Malbosc'};1
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Occitanie'};12
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'FacdesSciences'};8
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Fac de Lettres'};7
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Aiguelongue'};6
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jeu de Mail des Abbés'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Euromédecine'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Marie Caizergues'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Sabines'};1
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Celleneuve'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jardin de la Lironde'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Père Soulas'};6
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Place Viala'};5
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Hôtel du Département'};1
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Tonnelles'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Parvis Jules Ferry - Gare Saint-Roch'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Pont de Lattes - Gare Saint-Roch'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Deux Ponts - Gare Saint-Roch'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Providence - Ovalie'};1
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Pérols Etang de l Or'};41
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Albert 1er - Cathédrale'};4
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Saint-Guilhem - Courreau'};3
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Sud De France'};2
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Comedie Baudin'};0
+1767978269;Velo;{'addressCountry': 'FR', 'addressLocality': 'Montpellier', 'streetAddress': 'Jean de Beins'};6
