@@ -1,0 +1,35 @@
+name: Collecte automatique des parkings
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cloner le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: |
+          pip install requests
+
+      - name: Lancer la collecte
+        run: |
+          python collect_once.py
+
+      - name: Commit des nouvelles données
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/suivi_global.csv
+          git commit -m "Collecte automatique parkings" || echo "Aucune modification"
+          git push
