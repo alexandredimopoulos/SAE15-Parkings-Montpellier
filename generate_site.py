@@ -39,12 +39,13 @@ def generer_html():
     df['percent_fill'] = (1 - (df['places_libres'] / df['capacite_totale'])) * 100
     df['date_str'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    # --- 2. HISTORIQUE POUR JS ---
-    start_date = df['date'].max() - timedelta(hours=48)
-    df_history = df[df['date'] >= start_date].copy()
+    # --- 2. HISTORIQUE (TOUT L'HISTORIQUE) ---
+    # MODIFICATION V4 : On ne filtre plus sur 48h, on prend tout le dataset.
+    df_history = df.copy() 
     
     history_dict = {}
     for parking_name in df_history['parking'].unique():
+        # Tri par date pour que la courbe soit propre
         data_p = df_history[df_history['parking'] == parking_name].sort_values('date')
         history_dict[parking_name] = {
             "dates": data_p['date_str'].tolist(),
@@ -57,8 +58,6 @@ def generer_html():
     last_ts = df['timestamp'].max()
     df_last = df[df['timestamp'] == last_ts].copy()
     date_maj = (datetime.fromtimestamp(last_ts) + timedelta(hours=1)).strftime('%H:%M')
-    
-    # Texte étiquette (Uniquement le %)
     df_last['label_text'] = df_last.apply(lambda x: f"{x['percent_fill']:.0f}%", axis=1)
 
     # --- 4. CONFIG STYLE ---
@@ -73,7 +72,7 @@ def generer_html():
     fig_map = px.scatter_mapbox(
         df_map, lat="lat", lon="lon", color="type",
         custom_data=['parking', 'percent_fill'],
-        color_discrete_map=COLOR_MAP, zoom=12, height=400
+        color_discrete_map=COLOR_MAP, zoom=12, height=450 # Carte un peu plus haute
     )
     fig_map.update_traces(
         marker=dict(size=15, opacity=0.9),
@@ -86,8 +85,8 @@ def generer_html():
         legend=dict(yanchor="top", y=0.95, xanchor="left", x=0.05),
         clickmode='event+select'
     )
-    # ID important pour le JS : map-div
-    html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='map-div')
+    # On ajoute "autosize" pour que la carte s'adapte bien en plein écran
+    html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id='map-div')
 
     # --- B. GRAPHIQUE ÉVOLUTION ---
     default_parking = df_last['parking'].iloc[0] if not df_last.empty else "Inconnu"
@@ -107,36 +106,25 @@ def generer_html():
         yaxis=dict(range=[0, 105], showgrid=True, gridcolor='#eee'),
         xaxis=dict(showgrid=False)
     )
-    # ID important pour le JS : line-div
-    html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='line-div')
+    html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id='line-div')
 
-    # --- C. BARRES (FONCTION UNIFIÉE) ---
+    # --- C. BARRES ---
     def create_bar_chart(data, color, div_id):
         if data.empty: return "<p>Pas de données</p>"
         data = data.sort_values('percent_fill', ascending=False)
-        
         fig = px.bar(
             data, x='parking', y='percent_fill', text='label_text', 
             color_discrete_sequence=[color],
-            # On ajoute les infos détaillées pour le survol
             custom_data=['places_libres', 'capacite_totale']
         )
-        
         fig.update_traces(
             textposition='outside', textfont_weight='bold', marker_cornerradius=5, cliponaxis=False,
-            # Le HTML du survol est défini ici
-            hovertemplate="<b>%{x}</b><br>" +
-                          "Places disponibles : %{customdata[0]}<br>" +
-                          "Capacité totale : %{customdata[1]}<br>" +
-                          "Remplissage : %{y:.1f}%<extra></extra>"
+            hovertemplate="<b>%{x}</b><br>Places disponibles : %{customdata[0]}<br>Capacité totale : %{customdata[1]}<br>Remplissage : %{y:.1f}%<extra></extra>"
         )
-        
         fig.update_layout(**layout_config)
         fig.update_yaxes(visible=False, range=[0, 125])
         fig.update_xaxes(title=None, tickangle=-45)
-        
-        # On passe l'ID pour que le JS puisse écouter les clics
-        return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id=div_id)
+        return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id=div_id)
 
     html_cars = create_bar_chart(df_last[df_last['type'] == 'Voiture'], COLOR_MAP['Voiture'], 'cars-div')
     
@@ -145,12 +133,26 @@ def generer_html():
         df_bikes['parking'] = df_bikes['parking'].apply(lambda x: x[:15] + '..' if len(x) > 15 else x)
     html_bikes = create_bar_chart(df_bikes, COLOR_MAP['Velo'], 'bikes-div')
 
-    # --- JAVASCRIPT AVANCÉ ---
+    # --- HTML & JS ---
     js_script = f"""
     <script>
         var historicalData = {json_history};
         
-        // Fonction unique de mise à jour du graphique
+        // --- 1. FULLSCREEN MAP ---
+        function toggleFullScreen() {{
+            var elem = document.getElementById('map-container-wrapper');
+            if (!document.fullscreenElement) {{
+                elem.requestFullscreen().catch(err => {{
+                    alert(`Erreur plein écran : ${{err.message}}`);
+                }});
+                elem.classList.add("is-fullscreen");
+            }} else {{
+                document.exitFullscreen();
+                elem.classList.remove("is-fullscreen");
+            }}
+        }}
+
+        // --- 2. UPDATE GRAPH ---
         function updateLineChart(parkingName) {{
             var lineDiv = document.getElementById('line-div');
             
@@ -172,8 +174,6 @@ def generer_html():
                 }};
 
                 Plotly.update(lineDiv, update, layoutUpdate);
-                
-                // Scroll doux vers le graphique
                 lineDiv.scrollIntoView({{behavior: "smooth", block: "center"}});
             }}
         }}
@@ -183,34 +183,23 @@ def generer_html():
             var carsDiv = document.getElementById('cars-div');
             var bikesDiv = document.getElementById('bikes-div');
             
-            // 1. Clic sur la CARTE
             if(mapDiv) {{
                 mapDiv.on('plotly_click', function(data){{
                     var parkingName = data.points[0].customdata[0];
                     updateLineChart(parkingName);
                 }});
             }}
-
-            // 2. Clic sur les BARRES VOITURES
             if(carsDiv) {{
                 carsDiv.on('plotly_click', function(data){{
-                    var parkingName = data.points[0].x; // Sur un bar chart, le nom est en X
+                    var parkingName = data.points[0].x;
                     updateLineChart(parkingName);
                 }});
             }}
-
-            // 3. Clic sur les BARRES VÉLOS
             if(bikesDiv) {{
                 bikesDiv.on('plotly_click', function(data){{
                     var parkingName = data.points[0].x;
-                    // On retire les ".." si le nom a été coupé pour retrouver la clé dans le dico
-                    // Note : C'est une limite, si le nom coupé est ambigu ça peut rater, 
-                    // mais pour l'affichage c'est le mieux.
-                    // Idéalement on passerait le nom complet en customdata aussi.
-                    // Ici on tente la recherche directe, sinon on cherche par approximation.
-                    
+                    // Recherche approximative si nom tronqué
                     if (!historicalData[parkingName]) {{
-                         // Recherche approximative si le nom a été tronqué
                          var cleanName = parkingName.replace('..', '');
                          for (var key in historicalData) {{
                              if (key.startsWith(cleanName)) {{
@@ -226,7 +215,6 @@ def generer_html():
     </script>
     """
 
-    # --- HTML FINAL ---
     html_content = f"""
     <!DOCTYPE html>
     <html lang="fr">
@@ -238,7 +226,6 @@ def generer_html():
             :root {{ --bg-color: #F2F2F7; --card-bg: #FFFFFF; --text-primary: #1C1C1E; --text-secondary: #8E8E93; }}
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-primary); margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }}
             
-            /* HEADER CENTRÉ */
             header {{ 
                 position: sticky; top: 0; 
                 background: rgba(255,255,255,0.85); 
@@ -246,46 +233,49 @@ def generer_html():
                 border-bottom: 1px solid rgba(0,0,0,0.1); 
                 padding: 15px 20px; 
                 z-index: 999; 
-                display: flex; 
-                justify-content: center; /* Centre le contenu principal */
-                align-items: center;
-                position: relative; /* Pour positionner le pill en absolu */
+                display: flex; justify-content: center; align-items: center; position: relative;
             }}
             
-            h1 {{ 
-                font-size: 20px; 
-                font-weight: 700; 
-                margin: 0; 
-                text-align: center;
-            }}
+            h1 {{ font-size: 20px; font-weight: 700; margin: 0; text-align: center; }}
             
             .pill {{ 
-                background: #E5E5EA; 
-                color: var(--text-secondary); 
-                padding: 6px 12px; 
-                border-radius: 20px; 
-                font-size: 13px; 
-                font-weight: 600;
-                position: absolute; /* Force le badge à droite */
-                right: 20px;
+                background: #E5E5EA; color: var(--text-secondary); padding: 6px 12px; border-radius: 20px; 
+                font-size: 13px; font-weight: 600; position: absolute; right: 20px;
             }}
-
-            /* Responsive pour le header sur mobile */
+            
             @media (max-width: 600px) {{
                 header {{ justify-content: space-between; }}
                 .pill {{ position: static; }}
                 h1 {{ font-size: 16px; }}
             }}
             
-            .container {{ max-width: 1100px; margin: 0 auto; padding: 20px; }}
+            /* MODIFICATION V4 : LARGEUR 95% POUR EFFET "DASHBOARD" */
+            .container {{ max-width: 95%; margin: 0 auto; padding: 20px; }}
             
             .card {{ background: var(--card-bg); border-radius: 22px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); overflow: hidden; }}
-            .card-header {{ display: flex; align-items: center; margin-bottom: 20px; }}
+            .card-header {{ display: flex; align-items: center; margin-bottom: 20px; justify-content: space-between; }}
+            .header-left {{ display: flex; align-items: center; }}
             .icon {{ font-size: 24px; margin-right: 12px; }}
             .card-title {{ font-size: 19px; font-weight: 700; margin: 0; }}
             .card-subtitle {{ font-size: 14px; color: var(--text-secondary); margin-top: 2px; }}
             footer {{ text-align: center; color: var(--text-secondary); font-size: 12px; padding: 40px; }}
             .instruction {{ text-align:center; color: #007AFF; font-size:14px; margin-bottom:10px; font-weight:500; }}
+            
+            /* Bouton Plein Écran */
+            .fs-btn {{
+                background: none; border: 1px solid #E5E5EA; border-radius: 8px; padding: 5px 10px;
+                cursor: pointer; color: #007AFF; font-weight: 600; font-size: 13px;
+                transition: background 0.2s;
+            }}
+            .fs-btn:hover {{ background: #f0f0f5; }}
+            
+            /* Style quand la carte est en plein écran */
+            #map-container-wrapper.is-fullscreen {{
+                background: white; padding: 20px; display: flex; flex-direction: column; justify-content: center;
+            }}
+            #map-container-wrapper.is-fullscreen #map-div {{
+                height: 90vh !important; /* Force la hauteur en plein écran */
+            }}
         </style>
     </head>
     <body>
@@ -297,29 +287,46 @@ def generer_html():
         <div class="container">
             
             <div class="card" style="padding:0;">
-                <div style="padding: 20px 20px 10px 20px;">
-                    <h2 class="card-title">Carte Interactive</h2>
-                    <div class="card-subtitle">Localisation des stations</div>
+                <div id="map-container-wrapper">
+                    <div style="padding: 20px 20px 10px 20px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <h2 class="card-title">Carte Interactive</h2>
+                            <div class="card-subtitle">Localisation des stations</div>
+                        </div>
+                        <button class="fs-btn" onclick="toggleFullScreen()">⛶ Plein écran</button>
+                    </div>
                     <p class="instruction">👆 Cliquez sur un point pour voir son historique ci-dessous</p>
+                    {html_map}
                 </div>
-                {html_map}
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <span class="icon">📈</span>
-                    <div><h2 class="card-title">Analyse Temporelle</h2><div class="card-subtitle">Historique sur 48h</div></div>
+                    <div class="header-left">
+                        <span class="icon">📈</span>
+                        <div><h2 class="card-title">Analyse Temporelle</h2><div class="card-subtitle">Historique complet disponible</div></div>
+                    </div>
                 </div>
                 {html_line}
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="icon">🚗</span><div><h2 class="card-title">Parkings Voitures</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div></div>
+                <div class="card-header">
+                    <div class="header-left">
+                        <span class="icon">🚗</span>
+                        <div><h2 class="card-title">Parkings Voitures</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div>
+                    </div>
+                </div>
                 {html_cars}
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="icon">🚲</span><div><h2 class="card-title">Parkings Vélos</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div></div>
+                <div class="card-header">
+                    <div class="header-left">
+                        <span class="icon">🚲</span>
+                        <div><h2 class="card-title">Parkings Vélos</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div>
+                    </div>
+                </div>
                 {html_bikes}
             </div>
             
@@ -333,7 +340,7 @@ def generer_html():
 
     with open(FICHIER_HTML, "w", encoding="utf-8") as f:
         f.write(html_content)
-    print("Site interactif v3 généré avec succès !")
+    print("Site V4 (Large + Fullscreen + Full History) généré !")
 
 if __name__ == "__main__":
     generer_html()
