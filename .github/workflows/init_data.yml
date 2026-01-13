@@ -1,0 +1,31 @@
+name: Initialisation Données Réelles
+
+on:
+  workflow_dispatch: # Bouton manuel
+
+jobs:
+  fetch-history:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Dépendances
+        run: pip install requests
+
+      - name: Télécharger historique API
+        run: python fetch_real_history.py
+
+      - name: Sauvegarder
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/suivi_global.csv
+          git commit -m "Import historique réel API" || echo "Rien à changer"
+          git push

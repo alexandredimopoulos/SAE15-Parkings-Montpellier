@@ -32,18 +32,14 @@ def generer_html():
         creer_page_erreur("Données incomplètes.")
         return
 
-    # --- 1. PRÉPARATION DES DONNÉES ---
+    # --- 1. PRÉPARATION ---
     df['date'] = pd.to_datetime(df['timestamp'], unit='s') + pd.Timedelta(hours=1)
-    
-    # Nettoyage
     df['capacite_totale'] = pd.to_numeric(df['capacite_totale'], errors='coerce')
     df = df[df['capacite_totale'] > 0]
     df['percent_fill'] = (1 - (df['places_libres'] / df['capacite_totale'])) * 100
-    
-    # Formatage date pour JS
     df['date_str'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    # --- 2. DICTIONNAIRE D'HISTORIQUE ---
+    # --- 2. HISTORIQUE POUR JS ---
     start_date = df['date'].max() - timedelta(hours=48)
     df_history = df[df['date'] >= start_date].copy()
     
@@ -55,20 +51,17 @@ def generer_html():
             "values": data_p['percent_fill'].tolist(),
             "type": data_p['type'].iloc[0]
         }
-    
     json_history = json.dumps(history_dict)
 
     # --- 3. DERNIER ÉTAT ---
     last_ts = df['timestamp'].max()
     df_last = df[df['timestamp'] == last_ts].copy()
-    
-    # CORRECTION HEURE (+1h demandée)
     date_maj = (datetime.fromtimestamp(last_ts) + timedelta(hours=1)).strftime('%H:%M')
     
-    # MODIFICATION ETIQUETTE : Uniquement le pourcentage
+    # Texte étiquette (Uniquement le %)
     df_last['label_text'] = df_last.apply(lambda x: f"{x['percent_fill']:.0f}%", axis=1)
 
-    # --- 4. CONFIGURATION GRAPHIQUES ---
+    # --- 4. CONFIG STYLE ---
     layout_config = {
         'plot_bgcolor': 'rgba(0,0,0,0)', 'paper_bgcolor': 'rgba(0,0,0,0)',
         'font': {'family': '-apple-system, Roboto, sans-serif'}, 'margin': dict(l=0, r=0, t=0, b=0)
@@ -93,6 +86,7 @@ def generer_html():
         legend=dict(yanchor="top", y=0.95, xanchor="left", x=0.05),
         clickmode='event+select'
     )
+    # ID important pour le JS : map-div
     html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='map-div')
 
     # --- B. GRAPHIQUE ÉVOLUTION ---
@@ -107,70 +101,127 @@ def generer_html():
         fill='tozeroy', fillcolor='rgba(0, 122, 255, 0.1)'
     ))
     fig_line.update_layout(**layout_config)
-    
-    # TITRE EN GRAS ICI
     fig_line.update_layout(
         title=dict(text=f"Évolution : <b>{default_parking}</b>", x=0.05, y=0.95),
         hovermode="x unified",
         yaxis=dict(range=[0, 105], showgrid=True, gridcolor='#eee'),
         xaxis=dict(showgrid=False)
     )
+    # ID important pour le JS : line-div
     html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='line-div')
 
-    # --- C. BARRES ---
-    def create_bar_chart(data, color):
+    # --- C. BARRES (FONCTION UNIFIÉE) ---
+    def create_bar_chart(data, color, div_id):
         if data.empty: return "<p>Pas de données</p>"
         data = data.sort_values('percent_fill', ascending=False)
-        fig = px.bar(data, x='parking', y='percent_fill', text='label_text', color_discrete_sequence=[color])
-        fig.update_traces(textposition='outside', textfont_weight='bold', marker_cornerradius=5, cliponaxis=False)
+        
+        fig = px.bar(
+            data, x='parking', y='percent_fill', text='label_text', 
+            color_discrete_sequence=[color],
+            # On ajoute les infos détaillées pour le survol
+            custom_data=['places_libres', 'capacite_totale']
+        )
+        
+        fig.update_traces(
+            textposition='outside', textfont_weight='bold', marker_cornerradius=5, cliponaxis=False,
+            # Le HTML du survol est défini ici
+            hovertemplate="<b>%{x}</b><br>" +
+                          "Places disponibles : %{customdata[0]}<br>" +
+                          "Capacité totale : %{customdata[1]}<br>" +
+                          "Remplissage : %{y:.1f}%<extra></extra>"
+        )
+        
         fig.update_layout(**layout_config)
-        # On réduit un peu la marge haute car le texte est plus court
         fig.update_yaxes(visible=False, range=[0, 125])
         fig.update_xaxes(title=None, tickangle=-45)
-        return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False})
+        
+        # On passe l'ID pour que le JS puisse écouter les clics
+        return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id=div_id)
 
-    html_cars = create_bar_chart(df_last[df_last['type'] == 'Voiture'], COLOR_MAP['Voiture'])
+    html_cars = create_bar_chart(df_last[df_last['type'] == 'Voiture'], COLOR_MAP['Voiture'], 'cars-div')
     
     df_bikes = df_last[df_last['type'] == 'Velo'].copy()
     if not df_bikes.empty:
         df_bikes['parking'] = df_bikes['parking'].apply(lambda x: x[:15] + '..' if len(x) > 15 else x)
-    html_bikes = create_bar_chart(df_bikes, COLOR_MAP['Velo'])
+    html_bikes = create_bar_chart(df_bikes, COLOR_MAP['Velo'], 'bikes-div')
 
-    # --- JAVASCRIPT ---
+    # --- JAVASCRIPT AVANCÉ ---
     js_script = f"""
     <script>
         var historicalData = {json_history};
         
-        window.onload = function() {{
-            var mapDiv = document.getElementById('map-div');
+        // Fonction unique de mise à jour du graphique
+        function updateLineChart(parkingName) {{
             var lineDiv = document.getElementById('line-div');
             
-            mapDiv.on('plotly_click', function(data){{
-                var point = data.points[0];
-                var parkingName = point.customdata[0];
+            if (historicalData[parkingName]) {{
+                var newData = historicalData[parkingName];
+                var newColor = (newData.type === 'Voiture') ? '#007AFF' : '#FF9500';
+                var fillColor = (newData.type === 'Voiture') ? 'rgba(0, 122, 255, 0.1)' : 'rgba(255, 149, 0, 0.1)';
+
+                var update = {{
+                    x: [newData.dates],
+                    y: [newData.values],
+                    name: [parkingName],
+                    'line.color': [newColor],
+                    'fillcolor': [fillColor]
+                }};
                 
-                if (historicalData[parkingName]) {{
-                    var newData = historicalData[parkingName];
-                    var newColor = (newData.type === 'Voiture') ? '#007AFF' : '#FF9500';
-                    var fillColor = (newData.type === 'Voiture') ? 'rgba(0, 122, 255, 0.1)' : 'rgba(255, 149, 0, 0.1)';
+                var layoutUpdate = {{
+                    'title.text': 'Évolution : <b>' + parkingName + '</b>'
+                }};
 
-                    var update = {{
-                        x: [newData.dates],
-                        y: [newData.values],
-                        name: [parkingName],
-                        'line.color': [newColor],
-                        'fillcolor': [fillColor]
-                    }};
+                Plotly.update(lineDiv, update, layoutUpdate);
+                
+                // Scroll doux vers le graphique
+                lineDiv.scrollIntoView({{behavior: "smooth", block: "center"}});
+            }}
+        }}
+
+        window.onload = function() {{
+            var mapDiv = document.getElementById('map-div');
+            var carsDiv = document.getElementById('cars-div');
+            var bikesDiv = document.getElementById('bikes-div');
+            
+            // 1. Clic sur la CARTE
+            if(mapDiv) {{
+                mapDiv.on('plotly_click', function(data){{
+                    var parkingName = data.points[0].customdata[0];
+                    updateLineChart(parkingName);
+                }});
+            }}
+
+            // 2. Clic sur les BARRES VOITURES
+            if(carsDiv) {{
+                carsDiv.on('plotly_click', function(data){{
+                    var parkingName = data.points[0].x; // Sur un bar chart, le nom est en X
+                    updateLineChart(parkingName);
+                }});
+            }}
+
+            // 3. Clic sur les BARRES VÉLOS
+            if(bikesDiv) {{
+                bikesDiv.on('plotly_click', function(data){{
+                    var parkingName = data.points[0].x;
+                    // On retire les ".." si le nom a été coupé pour retrouver la clé dans le dico
+                    // Note : C'est une limite, si le nom coupé est ambigu ça peut rater, 
+                    // mais pour l'affichage c'est le mieux.
+                    // Idéalement on passerait le nom complet en customdata aussi.
+                    // Ici on tente la recherche directe, sinon on cherche par approximation.
                     
-                    // MISE A JOUR DU TITRE EN GRAS
-                    var layoutUpdate = {{
-                        'title.text': 'Évolution : <b>' + parkingName + '</b>'
-                    }};
-
-                    Plotly.update(lineDiv, update, layoutUpdate);
-                    lineDiv.scrollIntoView({{behavior: "smooth", block: "center"}});
-                }}
-            }});
+                    if (!historicalData[parkingName]) {{
+                         // Recherche approximative si le nom a été tronqué
+                         var cleanName = parkingName.replace('..', '');
+                         for (var key in historicalData) {{
+                             if (key.startsWith(cleanName)) {{
+                                 parkingName = key;
+                                 break;
+                             }}
+                         }}
+                    }}
+                    updateLineChart(parkingName);
+                }});
+            }}
         }};
     </script>
     """
@@ -182,15 +233,50 @@ def generer_html():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Montpellier Live</title>
+        <title>Suivi Parkings Montpellier</title>
         <style>
             :root {{ --bg-color: #F2F2F7; --card-bg: #FFFFFF; --text-primary: #1C1C1E; --text-secondary: #8E8E93; }}
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-primary); margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }}
-            header {{ position: sticky; top: 0; background: rgba(255,255,255,0.85); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgba(0,0,0,0.1); padding: 15px 20px; z-index: 999; display: flex; justify-content: space-between; align-items: center; }}
-            h1 {{ font-size: 20px; font-weight: 700; margin: 0; }}
-            .pill {{ background: #E5E5EA; color: var(--text-secondary); padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }}
             
-            /* MODIFICATION LARGEUR SITE ICI */
+            /* HEADER CENTRÉ */
+            header {{ 
+                position: sticky; top: 0; 
+                background: rgba(255,255,255,0.85); 
+                backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); 
+                border-bottom: 1px solid rgba(0,0,0,0.1); 
+                padding: 15px 20px; 
+                z-index: 999; 
+                display: flex; 
+                justify-content: center; /* Centre le contenu principal */
+                align-items: center;
+                position: relative; /* Pour positionner le pill en absolu */
+            }}
+            
+            h1 {{ 
+                font-size: 20px; 
+                font-weight: 700; 
+                margin: 0; 
+                text-align: center;
+            }}
+            
+            .pill {{ 
+                background: #E5E5EA; 
+                color: var(--text-secondary); 
+                padding: 6px 12px; 
+                border-radius: 20px; 
+                font-size: 13px; 
+                font-weight: 600;
+                position: absolute; /* Force le badge à droite */
+                right: 20px;
+            }}
+
+            /* Responsive pour le header sur mobile */
+            @media (max-width: 600px) {{
+                header {{ justify-content: space-between; }}
+                .pill {{ position: static; }}
+                h1 {{ font-size: 16px; }}
+            }}
+            
             .container {{ max-width: 1100px; margin: 0 auto; padding: 20px; }}
             
             .card {{ background: var(--card-bg); border-radius: 22px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); overflow: hidden; }}
@@ -204,7 +290,7 @@ def generer_html():
     </head>
     <body>
         <header>
-            <h1>Montpellier Live</h1>
+            <h1>🅿️ Suivi des Parkings de Montpellier en direct 🚲</h1>
             <div class="pill">Maj : {date_maj}</div>
         </header>
 
@@ -228,12 +314,12 @@ def generer_html():
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="icon">🚗</span><div><h2 class="card-title">Parkings Voitures</h2><div class="card-subtitle">État actuel</div></div></div>
+                <div class="card-header"><span class="icon">🚗</span><div><h2 class="card-title">Parkings Voitures</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div></div>
                 {html_cars}
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="icon">🚲</span><div><h2 class="card-title">Parkings Vélos</h2><div class="card-subtitle">État actuel</div></div></div>
+                <div class="card-header"><span class="icon">🚲</span><div><h2 class="card-title">Parkings Vélos</h2><div class="card-subtitle">Cliquez sur une barre pour voir l'historique</div></div></div>
                 {html_bikes}
             </div>
             
@@ -247,7 +333,7 @@ def generer_html():
 
     with open(FICHIER_HTML, "w", encoding="utf-8") as f:
         f.write(html_content)
-    print("Site mis à jour avec modifications design !")
+    print("Site interactif v3 généré avec succès !")
 
 if __name__ == "__main__":
     generer_html()
