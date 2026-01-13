@@ -1,13 +1,13 @@
-name: Initialisation Données Réelles
+name: Reset Données (Simulation Complète)
 
 on:
-  workflow_dispatch: # Bouton manuel
+  workflow_dispatch: # Permet de le lancer manuellement via le bouton
 
 jobs:
-  fetch-history:
+  fill-data:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Indispensable pour pouvoir modifier le dépôt
     steps:
       - uses: actions/checkout@v4
       
@@ -16,16 +16,26 @@ jobs:
         with:
           python-version: "3.11"
           
-      - name: Dépendances
+      - name: Installer dépendances
         run: pip install requests
 
-      - name: Télécharger historique API
-        run: python fetch_real_history.py
+      - name: Lancer la simulation
+        # Assure-toi que fill_history.py est bien à la racine de ton projet
+        run: python fill_history.py
 
-      - name: Sauvegarder
+      - name: Sauvegarder les données
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 1. On ajoute le fichier CSV généré
           git add data/suivi_global.csv
-          git commit -m "Import historique réel API" || echo "Rien à changer"
+          
+          # 2. On commit (enregistre)
+          git commit -m "Reset avec données simulées complètes" || echo "Rien à changer"
+          
+          # 3. CRUCIAL : On récupère les modifs distantes pour éviter le conflit
+          git pull --rebase origin main
+          
+          # 4. On pousse le tout
           git push
