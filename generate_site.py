@@ -23,7 +23,6 @@ def generer_html():
         return
 
     try:
-        # Lecture du CSV
         df = pd.read_csv(FICHIER_CSV, delimiter=";")
         df.columns = df.columns.str.strip()
     except Exception as e:
@@ -35,26 +34,20 @@ def generer_html():
         creer_page_erreur("Données incomplètes dans le CSV.")
         return
 
-    # --- 1. NETTOYAGE ET PRÉPARATION ---
-    # Conversion date
+    # --- 1. PRÉPARATION DES DONNÉES (Méthode V6 conservée) ---
     df['date'] = pd.to_datetime(df['timestamp'], unit='s') + pd.Timedelta(hours=1)
     
-    # CORRECTION DU BUG GRAPHIQUE : On supprime les doublons (même parking, même heure)
-    # On ne garde que la dernière valeur enregistrée pour chaque timestamp
+    # Suppression simple des doublons (Suffisant selon ton retour)
     df = df.sort_values('timestamp')
     df = df.drop_duplicates(subset=['timestamp', 'parking'], keep='last')
 
-    # Nettoyage capacités
+    # Calculs
     df['capacite_totale'] = pd.to_numeric(df['capacite_totale'], errors='coerce')
     df = df[df['capacite_totale'] > 0]
-    
-    # Calcul % Remplissage
     df['percent_fill'] = (1 - (df['places_libres'] / df['capacite_totale'])) * 100
     df['date_str'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    # --- 2. ANALYSE MATHÉMATIQUE ---
-    
-    # A. Stabilité (Écart-type)
+    # --- 2. ANALYSE STATISTIQUE ---
     stats_df = df.groupby('parking')['percent_fill'].std().reset_index()
     stats_df.columns = ['parking', 'ecart_type']
     stats_df = stats_df.sort_values('ecart_type', ascending=False)
@@ -65,11 +58,11 @@ def generer_html():
     else:
         top_instable, top_stable = "N/A", "N/A"
 
-    # B. Intermodalité (Corrélation)
+    # --- 3. INTERMODALITÉ (CORRECTION BUG AFFICHAGE) ---
     df_last = df[df['timestamp'] == df['timestamp'].max()].copy()
     parkings_voiture = df_last[df_last['type'] == 'Voiture']
     
-    target_parking = "Gare" 
+    target_parking = "Gare"
     if target_parking not in parkings_voiture['parking'].values:
         target_parking = parkings_voiture['parking'].iloc[0] if not parkings_voiture.empty else None
 
@@ -79,7 +72,7 @@ def generer_html():
         info_p = df_last[df_last['parking'] == target_parking].iloc[0]
         p_lat, p_lon = info_p['lat'], info_p['lon']
 
-        # Trouver vélo le plus proche
+        # Recherche vélo proche
         velos = df_last[df_last['type'] == 'Velo']
         closest_velo = None
         min_dist = float('inf')
@@ -91,9 +84,9 @@ def generer_html():
                 closest_velo = row['parking']
 
         if closest_velo:
-            # Ré-échantillonnage horaire pour lisser les courbes comparatives
-            data_car = df[df['parking'] == target_parking].set_index('date').resample('1H')['percent_fill'].mean()
-            data_bike = df[df['parking'] == closest_velo].set_index('date').resample('1H')['percent_fill'].mean()
+            # Ré-échantillonnage PROPRE (30min) pour aligner les courbes sans trous
+            data_car = df[df['parking'] == target_parking].set_index('date').resample('30min')['percent_fill'].mean().interpolate()
+            data_bike = df[df['parking'] == closest_velo].set_index('date').resample('30min')['percent_fill'].mean().interpolate()
             
             combined = pd.concat([data_car, data_bike], axis=1, keys=['car', 'bike']).dropna()
             
@@ -101,26 +94,37 @@ def generer_html():
                 corr_score = lib.correlation(combined['car'].tolist(), combined['bike'].tolist())
                 corr_text = f"Corrélation : {corr_score:.2f}"
             else:
-                corr_text = "Données insuffisantes"
+                corr_text = "Calcul..."
             
             fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_dual.add_trace(go.Scatter(x=data_car.index, y=data_car.values, name=f"🚗 {target_parking}", line=dict(color='#007AFF')), secondary_y=False)
-            fig_dual.add_trace(go.Scatter(x=data_bike.index, y=data_bike.values, name=f"🚲 {closest_velo}", line=dict(color='#FF9500')), secondary_y=True)
+            
+            # Application du Style "Joli" (Hovertemplate)
+            fig_dual.add_trace(go.Scatter(
+                x=data_car.index, y=data_car.values, name=f"🚗 {target_parking}",
+                line=dict(color='#007AFF', width=3),
+                hovertemplate="<b>%{x|%H:%M}</b><br>Voiture: <b>%{y:.0f}%</b><extra></extra>"
+            ), secondary_y=False)
+            
+            fig_dual.add_trace(go.Scatter(
+                x=data_bike.index, y=data_bike.values, name=f"🚲 {closest_velo}",
+                line=dict(color='#FF9500', width=3),
+                hovertemplate="<b>%{x|%H:%M}</b><br>Vélo: <b>%{y:.0f}%</b><extra></extra>"
+            ), secondary_y=True)
             
             fig_dual.update_layout(
                 title=dict(text=f"Intermodalité : {target_parking} vs {closest_velo}<br><sup>{corr_text} (Distance: {min_dist*1000:.0f}m)</sup>"),
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            fig_dual.update_yaxes(title_text="Remplissage Voiture (%)", secondary_y=False, showgrid=True, gridcolor='#eee')
-            fig_dual.update_yaxes(title_text="Remplissage Vélo (%)", secondary_y=True, showgrid=False)
+            fig_dual.update_yaxes(title_text="Voiture (%)", secondary_y=False, showgrid=True, gridcolor='#eee')
+            fig_dual.update_yaxes(title_text="Vélo (%)", secondary_y=True, showgrid=False)
             html_intermodalite = fig_dual.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False})
 
-    # --- 3. JSON HISTORIQUE ---
+    # --- 4. EXPORT DATA JS ---
     df_history = df.copy() 
     history_dict = {}
     for parking_name in df_history['parking'].unique():
-        # Tri important pour éviter les retours en arrière graphiques
         data_p = df_history[df_history['parking'] == parking_name].sort_values('date')
         history_dict[parking_name] = {
             "dates": data_p['date_str'].tolist(),
@@ -129,46 +133,62 @@ def generer_html():
         }
     json_history = json.dumps(history_dict)
 
-    # --- 4. VISU ACTUELLE ---
+    # --- 5. VISU ESTHÉTIQUE ---
     last_ts = df['timestamp'].max()
     df_last_viz = df[df['timestamp'] == last_ts].copy()
     date_maj = (datetime.fromtimestamp(last_ts) + timedelta(hours=1)).strftime('%H:%M')
-    df_last_viz['label_text'] = df_last_viz.apply(lambda x: f"{x['percent_fill']:.0f}%", axis=1)
+    
+    # Texte propre pour affichage
+    df_last_viz['label_text'] = df_last_viz['percent_fill'].apply(lambda x: f"{x:.0f}%")
 
     COLOR_MAP = {'Voiture': '#007AFF', 'Velo': '#FF9500'}
     
-    # Carte
+    # A. Carte (Avec Hover Propre)
     df_map = df_last_viz.dropna(subset=['lat', 'lon'])
     fig_map = px.scatter_mapbox(
         df_map, lat="lat", lon="lon", color="type",
-        custom_data=['parking', 'percent_fill'],
+        custom_data=['parking', 'percent_fill', 'places_libres', 'capacite_totale'],
         color_discrete_map=COLOR_MAP, zoom=12, height=450
     )
-    fig_map.update_traces(marker=dict(size=12, opacity=0.9), hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]:.0f}%<extra></extra>")
+    fig_map.update_traces(
+        marker=dict(size=14, opacity=0.9),
+        hovertemplate="<b>%{customdata[0]}</b><br>" +
+                      "Remplissage: <b>%{customdata[1]:.0f}%</b><br>" +
+                      "Libre: %{customdata[2]} / %{customdata[3]}<extra></extra>"
+    )
     fig_map.update_layout(mapbox_style="carto-positron", mapbox_center={"lat": 43.608, "lon": 3.877}, margin=dict(l=0, r=0, t=0, b=0), legend=dict(x=0.02, y=0.98))
     html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='map-div')
 
-    # Graphique ligne
+    # B. Graphique Historique (Template)
     fig_line = go.Figure()
     fig_line.add_trace(go.Scatter(x=[], y=[], mode='lines')) 
     fig_line.update_layout(title="Cliquez sur un parking pour voir l'historique", plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(range=[0, 105], showgrid=True, gridcolor='#eee'))
     html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id='line-div')
 
-    # Barres
+    # C. Barres (Avec Customdata pour le JS)
     def make_bar(type_p, color, div_id):
         d = df_last_viz[df_last_viz['type'] == type_p].sort_values('percent_fill', ascending=False)
         if d.empty: return ""
         if type_p == 'Velo': 
             d['parking'] = d['parking'].apply(lambda x: x[:15] + '..' if len(x) > 15 else x)
-        fig = px.bar(d, x='parking', y='percent_fill', text='label_text', color_discrete_sequence=[color])
-        fig.update_traces(textposition='outside', cliponaxis=False)
-        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0,r=0,t=0,b=0), yaxis=dict(visible=False, range=[0, 120]), xaxis=dict(tickangle=-45))
+        
+        fig = px.bar(d, x='parking', y='percent_fill', text='label_text', 
+                     color_discrete_sequence=[color],
+                     # On passe toutes les infos nécessaires dans customdata
+                     custom_data=['parking', 'places_libres', 'capacite_totale']) 
+        
+        fig.update_traces(
+            textposition='outside', cliponaxis=False,
+            hovertemplate="<b>%{customdata[0]}</b><br>" +
+                          "Remplissage: %{y:.1f}%<br>" + 
+                          "Places: %{customdata[1]} / %{customdata[2]}<extra></extra>"
+        )
+        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0,r=0,t=0,b=0), yaxis=dict(visible=False, range=[0, 125]), xaxis=dict(tickangle=-45))
         return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False}, div_id=div_id)
 
     html_cars = make_bar('Voiture', COLOR_MAP['Voiture'], 'cars-div')
     html_bikes = make_bar('Velo', COLOR_MAP['Velo'], 'bikes-div')
 
-    # HTML Final
     html_content = f"""
     <!DOCTYPE html>
     <html lang="fr">
@@ -229,19 +249,28 @@ def generer_html():
                 if (!historyData[name]) return;
                 var d = historyData[name];
                 var color = (d.type === 'Voiture') ? '#007AFF' : '#FF9500';
-                var update = {{ x: [d.dates], y: [d.values], name: [name], 'line.color': [color] }};
+                
+                var update = {{ 
+                    x: [d.dates], y: [d.values], name: [name], 
+                    'line.color': [color],
+                    hovertemplate: "<b>%{{x|%d/%m %H:%M}}</b><br>Remplissage: <b>%{{y:.0f}}%</b><extra></extra>"
+                }};
                 Plotly.update(div, update, {{ title: 'Historique : ' + name }});
             }}
             var mapDiv = document.getElementById('map-div');
             if(mapDiv) mapDiv.on('plotly_click', function(d){{ updateChart(d.points[0].customdata[0]); }});
+            
             var carsDiv = document.getElementById('cars-div');
-            if(carsDiv) carsDiv.on('plotly_click', function(d){{ updateChart(d.points[0].x); }});
+            // FIX JS : On utilise customdata[0] pour avoir le nom complet (pas le x qui est coupé)
+            if(carsDiv) carsDiv.on('plotly_click', function(d){{ updateChart(d.points[0].customdata[0]); }});
+            
             var bikesDiv = document.getElementById('bikes-div');
             if(bikesDiv) bikesDiv.on('plotly_click', function(d){{ 
-                var name = d.points[0].x.replace('..', '');
+                var name = d.points[0].customdata[0].replace('..', ''); 
                 var realName = Object.keys(historyData).find(k => k.startsWith(name));
                 if(realName) updateChart(realName);
             }});
+            
             var first = Object.keys(historyData).find(k => historyData[k].type === 'Voiture');
             if(first) updateChart(first);
         </script>
@@ -250,7 +279,7 @@ def generer_html():
     """
     with open(FICHIER_HTML, "w", encoding="utf-8") as f:
         f.write(html_content)
-    print("Site V6 (Clean & Fix) généré !")
+    print("Site V7 Light (Visuels 'Pro' sans agrégation) généré !")
 
 if __name__ == "__main__":
     generer_html()
