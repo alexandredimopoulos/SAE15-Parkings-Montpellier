@@ -76,7 +76,7 @@ def collecter():
         except Exception as e:
             print(f"Erreur sur l'API {source['type']} : {e}")
 
-    # Écriture dans le fichier CSV
+    # Écriture dans le fichier CSV (Mode 'append')
     file_exists = os.path.exists(FICHIER)
     
     with open(FICHIER, "a", newline="", encoding="utf-8") as f:
