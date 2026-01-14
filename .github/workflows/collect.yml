@@ -2,44 +2,41 @@ name: Collecte et Mise à jour du Site
 
 on:
   schedule:
-    - cron: "*/10 * * * *"  # S'exécute toutes les 10e minutes (00, 10, 20...)
-  workflow_dispatch:        # Permet aussi de le lancer manuellement (bouton "Run workflow")
+    # Lance le script toutes les 20 minutes (pour ne pas saturer GitHub)
+    - cron: "*/20 * * * *"
+  workflow_dispatch: # Permet de lancer manuellement le script depuis l'interface GitHub
+
+permissions:
+  contents: write
 
 jobs:
-  collect-and-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    
-    # Cette permission est critique : elle autorise le bot à modifier tes fichiers
-    permissions:
-      contents: write
 
     steps:
-      - name: Récupérer le code (Checkout)
-        uses: actions/checkout@v4
+    - name: Récupérer le code
+      uses: actions/checkout@v3
 
-      - name: Installer Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - name: Installer Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      - name: Installer les dépendances
-        # On ajoute pandas et plotly pour le script de génération du site
-        run: |
-          pip install requests pandas plotly
+    - name: Installer les dépendances
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests pandas plotly
 
-      - name: 1. Lancer la collecte de données
-        run: python collect_once.py
+    - name: Lancer la collecte des données
+      run: python collect_once.py
 
-      - name: 2. Générer le site Web (index.html)
-        # Ce script (que je t'ai donné avant) doit exister à la racine
-        run: python generate_site.py
+    - name: Générer le site Web
+      run: python generate_site.py
 
-      - name: Commit et Push des changements
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # On ajoute le CSV (données) ET le HTML (site)
-          git add data/suivi_global.csv index.html
-          # Le "|| echo" évite que le script plante s'il n'y a rien de nouveau
-          git commit -m "Auto-update: données et site web" || echo "Aucune modification à enregistrer"
-          git push
+    - name: Sauvegarder et Publier (Commit & Push)
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        git add data/suivi_global.csv index.html
+        # On ne commite que s'il y a des changements
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Mise à jour automatique des données" && git push)
