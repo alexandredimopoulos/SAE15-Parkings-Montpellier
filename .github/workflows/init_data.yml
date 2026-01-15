@@ -1,4 +1,4 @@
-name: Récupération VRAI Historique (7 Jours)
+name: Récupération VRAI Historique (FORCE)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   fetch-real-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -20,20 +20,21 @@ jobs:
       - name: Dépendances
         run: pip install requests
 
-      - name: Sync avant lancement
-        run: git pull origin main || echo "Déjà à jour"
-
-      - name: Lancer la récupération (7 jours)
+      - name: Lancer la récupération robuste
         run: python fetch_real_history_slow.py
 
-      - name: Sauvegarder
+      - name: Sauvegarder (Méthode Bulldozer)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # 1. On prépare le fichier géant
           git add data/suivi_global.csv
-          git commit -m "Import VRAI historique (7 jours)" || echo "Rien à changer"
+          git commit -m "Import massif historique (29MB)" || echo "Rien à changer"
           
-          git pull --strategy-option=ours origin main
+          # 2. La boucle magique : On tire, on écrase, on pousse
+          # L'option -X ours dit : "En cas de doute, GARDE mon fichier de 29Mo"
+          git pull --rebase -X ours origin main
           
+          # 3. Envoi final
           git push
