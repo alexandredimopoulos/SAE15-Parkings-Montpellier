@@ -1,41 +1,39 @@
-name: Reset Données (Simulation Complète)
+name: Récupération VRAI Historique (7 Jours)
 
 on:
-  workflow_dispatch: # Permet de le lancer manuellement via le bouton
+  workflow_dispatch:
 
 jobs:
-  fill-data:
+  fetch-real-data:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
-      contents: write # Indispensable pour pouvoir modifier le dépôt
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          
-      - name: Installer dépendances
+
+      - name: Dépendances
         run: pip install requests
 
-      - name: Lancer la simulation
-        # Assure-toi que fill_history.py est bien à la racine de ton projet
-        run: python fill_history.py
+      - name: Sync avant lancement
+        run: git pull origin main || echo "Déjà à jour"
 
-      - name: Sauvegarder les données
+      - name: Lancer la récupération (7 jours)
+        run: python fetch_real_history_slow.py
+
+      - name: Sauvegarder
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. On ajoute le fichier CSV généré
           git add data/suivi_global.csv
+          git commit -m "Import VRAI historique (7 jours)" || echo "Rien à changer"
           
-          # 2. On commit (enregistre)
-          git commit -m "Reset avec données simulées complètes" || echo "Rien à changer"
+          git pull --strategy-option=ours origin main
           
-          # 3. CRUCIAL : On récupère les modifs distantes pour éviter le conflit
-          git pull --rebase origin main
-          
-          # 4. On pousse le tout
           git push
