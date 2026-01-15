@@ -1,0 +1,36 @@
+name: Mise à jour Données
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # Toutes les 15 minutes
+  workflow_dispatch:       # Bouton manuel
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Crucial pour éviter les conflits
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - run: pip install -r requirements.txt
+
+      - name: 1. Ajouter nouvelles données
+        run: python collect_once.py
+
+      - name: 2. Regénérer le site
+        run: python generate_site.py
+
+      - name: 3. Sauvegarder
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/suivi_global.csv index.html
+          git commit -m "Maj données" || echo "Rien à changer"
+          git push

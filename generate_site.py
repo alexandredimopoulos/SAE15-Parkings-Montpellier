@@ -1,380 +1,155 @@
-"""Génère index.html (dashboard) à partir de data/suivi_global.csv.
-
-Objectif : un rendu proche du screenshot "Montpellier Live":
-- Courbe comparatif Voiture vs Vélo (moyenne par heure)
-- Bloc stabilité (plus stable / plus instable) basé sur l'écart-type sur les dernières 24h
-- Carte des parkings/stations (positions depuis data/locations.json)
-- Historique interactif (clic sur un point carte ou une barre)
-- Barres classement (occupation actuelle)
-
-Le script est robuste aux petites incohérences (doublons, valeurs capteur > total...).
-"""
-
-from __future__ import annotations
-
-import json
-import os
-import re
-import unicodedata
-from datetime import datetime, timedelta, timezone
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import json
+import os
+from datetime import datetime
 
-CSV_PATH = "data/suivi_global.csv"
-LOC_PATH = "data/locations.json"
-OUT_HTML = "index.html"
+FICHIER_CSV = "data/suivi_global.csv"
 
+# Coordonnées GPS manuelles (car absentes de ton CSV) pour que la carte marche
+GPS_FIX = {
+    "Antigone": [43.6086, 3.8864], "Comedie": [43.6085, 3.8794], "Corum": [43.6139, 3.8824],
+    "Europa": [43.6081, 3.8907], "Foch": [43.6108, 3.8744], "Gambetta": [43.6065, 3.8722],
+    "Gare": [43.6044, 3.8807], "Triangle": [43.6091, 3.8828], "Pitot": [43.6132, 3.8703],
+    "Circe": [43.6033, 3.9189], "Garcia Lorca": [43.5901, 3.8953], "Mosson": [43.6167, 3.8203],
+    "Sabines": [43.5835, 3.8601], "Sablassou": [43.6335, 3.9238], "Occitanie": [43.6360, 3.8502],
+    "Polygone": [43.6082, 3.8851], "Arc de Triomphe": [43.6114, 3.8735],
+    "Odysseum": [43.6040, 3.9180], "Euromedecine": [43.6393, 3.8340]
+}
 
-def _force_div_id(plotly_html: str, wanted_id: str) -> str:
-    """Forcer un id de DIV sur le premier conteneur Plotly.
+def generer():
+    if not os.path.exists(FICHIER_CSV):
+        print("❌ Fichier CSV introuvable."); return
 
-    Selon la version de Plotly, `to_html(..., div_id=...)` n'existe pas.
-    Ici, on remplace le 1er `id="..."` rencontré dans le HTML renvoyé.
-    """
-    return re.sub(r'<div id="[^"]+"', f'<div id="{wanted_id}"', plotly_html, count=1)
+    try:
+        # 1. Lecture du CSV avec le bon séparateur
+        df = pd.read_csv(FICHIER_CSV, sep=";", on_bad_lines='skip')
+    except Exception as e:
+        print(f"❌ Erreur lecture CSV : {e}"); return
 
+    # Nettoyage des noms de colonnes (au cas où il y a des espaces)
+    df.columns = df.columns.str.strip()
+    
+    # 2. Création de la colonne Date complète (Fusion Date + Heure)
+    try:
+        df['datetime'] = pd.to_datetime(df['Date'] + ' ' + df['Heure'], format='%Y-%m-%d %H:%M')
+    except:
+        # Fallback si format différent
+        df['datetime'] = pd.to_datetime(df['Date'] + ' ' + df['Heure'], errors='coerce')
 
-def norm_name(s: str) -> str:
-    s = str(s).strip().lower()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    s = re.sub(r"\s+", " ", s)
-    return s
+    df = df.dropna(subset=['datetime']) # On vire les lignes illisibles
+    df = df.sort_values('datetime')
 
+    # Calcul remplissage
+    df['Places_Totales'] = pd.to_numeric(df['Places_Totales'], errors='coerce')
+    df['Places_Libres'] = pd.to_numeric(df['Places_Libres'], errors='coerce')
+    df = df[df['Places_Totales'] > 0]
+    df['percent'] = (1 - (df['Places_Libres'] / df['Places_Totales'])) * 100
+    df['percent'] = df['percent'].clip(0, 100)
 
-def load_locations() -> dict:
-    if not os.path.exists(LOC_PATH):
-        return {"Voiture": {}, "Velo": {}}
-    with open(LOC_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    # 3. Optimisation pour le graph (1 point par heure max pour alléger)
+    df['heure_fixe'] = df['datetime'].dt.floor('h')
+    df_graph = df.groupby(['Nom', 'Type', 'heure_fixe'])['percent'].mean().reset_index()
+    df_graph['date_str'] = df_graph['heure_fixe'].dt.strftime('%Y-%m-%d %H:%M')
 
-
-def load_history() -> pd.DataFrame:
-    if not os.path.exists(CSV_PATH):
-        raise FileNotFoundError(CSV_PATH)
-
-    df = pd.read_csv(CSV_PATH, sep=";", on_bad_lines="skip")
-    df.columns = [c.strip() for c in df.columns]
-
-    # Support 2 formats:
-    # A) Date, Heure, Type, Nom, Places_Libres, Places_Totales
-    # B) timestamp, type, parking, places_libres, capacite_totale, lat, lon (ancien)
-    cols = set(df.columns)
-
-    if {"Date", "Heure", "Type", "Nom", "Places_Libres", "Places_Totales"}.issubset(cols):
-        df = df.rename(
-            columns={
-                "Type": "type",
-                "Nom": "name",
-                "Places_Libres": "free",
-                "Places_Totales": "total",
-            }
-        )
-        # datetime locale (sans timezone) : YYYY-MM-DD + HH:MM
-        df["dt"] = pd.to_datetime(df["Date"].astype(str) + " " + df["Heure"].astype(str), errors="coerce")
-    elif {"timestamp", "type", "parking", "places_libres", "capacite_totale"}.issubset(cols):
-        df = df.rename(
-            columns={
-                "parking": "name",
-                "places_libres": "free",
-                "capacite_totale": "total",
-            }
-        )
-        df["dt"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
-    else:
-        raise ValueError(f"Colonnes CSV non reconnues: {df.columns.tolist()}")
-
-    df["type"] = df["type"].astype(str).str.strip()
-    df["name"] = df["name"].astype(str).str.strip()
-
-    # numerique + nettoyage
-    df["free"] = pd.to_numeric(df["free"], errors="coerce")
-    df["total"] = pd.to_numeric(df["total"], errors="coerce")
-    df = df.dropna(subset=["dt", "type", "name", "free", "total"])
-    df = df[df["total"] > 0]
-
-    # clamp capteurs
-    df.loc[df["free"] > df["total"], "free"] = df.loc[df["free"] > df["total"], "total"]
-    df.loc[df["free"] < 0, "free"] = 0
-
-    df["percent_fill"] = (1 - (df["free"] / df["total"])) * 100.0
-    df["percent_fill"] = df["percent_fill"].clip(0, 100)
-
-    # arrondi à l'heure pour lisser proprement
-    df["hour"] = df["dt"].dt.round("h")
-
-    return df
-
-
-def compute_stability(df: pd.DataFrame) -> tuple[str, str]:
-    """Retourne (plus_stable, plus_instable) sur Voiture, sur les dernières 24h."""
-    if df.empty:
-        return ("—", "—")
-
-    # dernière date
-    last_dt = df["dt"].max()
-    window_start = last_dt - timedelta(hours=24)
-
-    d = df[(df["type"].str.lower() == "voiture") & (df["dt"] >= window_start)]
-    if d.empty:
-        return ("—", "—")
-
-    # std par parking
-    stats = d.groupby("name")["percent_fill"].agg(["std", "count"]).reset_index()
-    stats = stats[stats["count"] >= 6]  # au moins ~6 points (sinon bruit)
-    if stats.empty:
-        return ("—", "—")
-
-    stable = stats.sort_values(["std", "count"], ascending=[True, False]).iloc[0]["name"]
-    unstable = stats.sort_values(["std", "count"], ascending=[False, False]).iloc[0]["name"]
-    return (str(stable), str(unstable))
-
-
-def build_site() -> None:
-    df = load_history()
-
-    # historique agrégé (si doublons)
-    df_hist = df.groupby(["name", "type", "hour"], as_index=False)["percent_fill"].mean()
-    df_hist["date_str"] = df_hist["hour"].dt.strftime("%Y-%m-%d %H:%M")
-
-    # intermodalité : moyenne par type et heure
-    df_inter = df_hist.groupby(["hour", "type"], as_index=False)["percent_fill"].mean()
-
-    # pivot pour tracer 2 axes
-    car = df_inter[df_inter["type"].str.lower() == "voiture"].set_index("hour")["percent_fill"]
-    bike = df_inter[df_inter["type"].str.lower() == "velo"].set_index("hour")["percent_fill"]
-    df_cmp = pd.merge(car, bike, left_index=True, right_index=True, how="outer", suffixes=("_c", "_b")).sort_index()
-
-    html_inter = "<p style='color:#888'>Données insuffisantes…</p>"
-    if not df_cmp.empty:
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(
-            go.Scatter(
-                x=df_cmp.index,
-                y=df_cmp.get("percent_fill_c"),
-                name="Voiture",
-                line=dict(color="#007AFF", width=3, shape="linear"),
-            ),
-            secondary_y=False,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df_cmp.index,
-                y=df_cmp.get("percent_fill_b"),
-                name="Vélo",
-                line=dict(color="#FF9500", width=3, shape="linear"),
-            ),
-            secondary_y=True,
-        )
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=30, b=0),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            legend=dict(orientation="h", y=1.1),
-        )
-        html_inter = fig.to_html(full_html=False, include_plotlyjs="cdn", config={"displayModeBar": False})
-
-    # JSON historique (pour click)
-    history: dict[str, dict] = {}
-    for (name, t), sub in df_hist.groupby(["name", "type"]):
-        s = sub.sort_values("hour")
-        history[name] = {
-            "dates": s["date_str"].tolist(),
-            "values": [round(float(x), 1) for x in s["percent_fill"].tolist()],
-            "type": t,
+    # 4. JSON pour les graphes JS
+    history_data = {}
+    for parking in df_graph['Nom'].unique():
+        data_p = df_graph[df_graph['Nom'] == parking]
+        history_data[parking] = {
+            "dates": data_p['date_str'].tolist(),
+            "values": [round(x, 1) for x in data_p['percent']],
+            "type": data_p['Type'].iloc[0]
         }
-    json_data = json.dumps(history, ensure_ascii=False)
+    json_str = json.dumps(history_data)
 
-    # snapshot actuel
-    last_dt = df["dt"].max()
-    date_maj = last_dt.strftime("%d/%m à %H:%M")
+    # 5. État Actuel (Dernière ligne du fichier)
+    last_df = df.groupby('Nom').tail(1).copy()
+    
+    # Ajout des GPS manuellement puisque ton CSV ne les a pas
+    def get_lat(nom): return GPS_FIX.get(nom, [None, None])[0]
+    def get_lon(nom): return GPS_FIX.get(nom, [None, None])[1]
+    
+    last_df['lat'] = last_df['Nom'].apply(get_lat)
+    last_df['lon'] = last_df['Nom'].apply(get_lon)
+    
+    date_maj = df['datetime'].max().strftime('%d/%m à %H:%M')
 
-    df_last = df.sort_values("dt").groupby(["type", "name"], as_index=False).tail(1)
-    df_last["lbl"] = df_last["percent_fill"].map(lambda x: f"{x:.0f}%")
+    # 6. Création des Visuels
+    # Carte (uniquement pour ceux dont on a trouvé le GPS)
+    map_df = last_df.dropna(subset=['lat', 'lon'])
+    if not map_df.empty:
+        fig_map = px.scatter_mapbox(map_df, lat="lat", lon="lon", color="Type", 
+                                    custom_data=['Nom', 'percent'], zoom=12, height=450,
+                                    color_discrete_map={'Voiture':'#007AFF', 'Velo':'#FF9500'})
+        fig_map.update_layout(mapbox_style="carto-positron", mapbox_center={"lat": 43.608, "lon": 3.877}, margin=dict(l=0,r=0,t=0,b=0), legend=dict(y=0.95, x=0.05))
+        html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False})
+    else:
+        html_map = "<p style='text-align:center'>Coordonnées GPS manquantes dans le script.</p>"
 
-    # stabilité
-    stable, unstable = compute_stability(df)
+    # Barres
+    def make_bar(data, col):
+        if data.empty: return "<p>Pas de données</p>"
+        fig = px.bar(data.sort_values('percent', ascending=False), x='Nom', y='percent', text=data['percent'].apply(lambda x: f"{x:.0f}%"), color_discrete_sequence=[col])
+        fig.update_layout(margin=dict(l=0,r=0,t=0,b=0), plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(visible=False, range=[0,110]), xaxis=dict(title=None))
+        return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False})
 
-    # positions
-    loc = load_locations()
-    df_last["name_norm"] = df_last["name"].map(norm_name)
-    df_last["lat"] = None
-    df_last["lon"] = None
+    html_cars = make_bar(last_df[last_df['Type']=='Voiture'], '#007AFF')
+    html_bikes = make_bar(last_df[last_df['Type']=='Velo'], '#FF9500')
 
-    for idx, row in df_last.iterrows():
-        t = "Voiture" if str(row["type"]).lower() == "voiture" else "Velo"
-        entry = loc.get(t, {}).get(row["name_norm"])
-        if entry:
-            df_last.at[idx, "lat"] = entry.get("lat")
-            df_last.at[idx, "lon"] = entry.get("lon")
+    # HTML Final
+    html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi Montpellier</title>
+    <style>
+        body{{font-family:-apple-system, sans-serif; background:#F2F2F7; margin:0; padding:20px; color:#1C1E21}}
+        .box{{background:white; border-radius:18px; padding:20px; margin-bottom:20px; box-shadow:0 4px 12px rgba(0,0,0,0.05)}}
+        h1{{text-align:center; font-weight:800}} .maj{{font-size:0.6em; background:#E5E5EA; padding:5px 10px; border-radius:12px; color:#555; vertical-align:middle}}
+        .grid{{display:grid; grid-template-columns:1fr 1fr; gap:20px}} @media(max-width:768px){{.grid{{grid-template-columns:1fr}}}}
+    </style></head><body>
+        <h1>🅿️ Montpellier Live <span class="maj">{date_maj}</span></h1>
+        
+        <div class="box"><h3>Carte (Principaux Parkings)</h3>{html_map}</div>
+        
+        <div class="box">
+            <h3>Historique (7 Jours)</h3>
+            <div id="graph" style="height:300px; text-align:center; line-height:300px; color:#888">Cliquez sur un élément pour voir l'historique</div>
+        </div>
 
-    # carte
-    df_map = df_last.dropna(subset=["lat", "lon"]).copy()
+        <div class="grid">
+            <div class="box"><h3>Voitures</h3>{html_cars}</div>
+            <div class="box"><h3>Vélos</h3>{html_bikes}</div>
+        </div>
 
-    html_map = "<div style='color:#888'>Pas de coordonnées (lance sync_locations.py)</div>"
-    if not df_map.empty:
-        fig_map = px.scatter_mapbox(
-            df_map,
-            lat="lat",
-            lon="lon",
-            color="type",
-            custom_data=["name", "percent_fill"],
-            zoom=12,
-            height=450,
-            color_discrete_map={"Voiture": "#007AFF", "Velo": "#FF9500", "Vélo": "#FF9500"},
-        )
-        fig_map.update_layout(
-            mapbox_style="carto-positron",
-            mapbox_center={"lat": 43.608, "lon": 3.877},
-            margin=dict(l=0, r=0, t=0, b=0),
-            legend=dict(y=0.95, x=0.05),
-        )
-        html_map = _force_div_id(
-            fig_map.to_html(
-                full_html=False,
-                include_plotlyjs="cdn",
-                config={"displayModeBar": False},
-            ),
-            "map-div",
-        )
+    <script>
+        var data = {json_str};
+        function draw(name) {{
+            if(!data[name]) return;
+            var c = data[name].type=='Voiture'?'#007AFF':'#FF9500';
+            Plotly.newPlot('graph', [{{
+                x: data[name].dates, y: data[name].values, type: 'scatter', mode: 'lines',
+                line: {{color: c, width: 3, shape: 'spline'}}, fill: 'tozeroy'
+            }}], {{
+                title: name, margin: {{l:30,r:10,t:40,b:30}}, hovermode: 'x unified'
+            }}, {{displayModeBar: false, responsive: true}});
+        }}
+        
+        // Ecouteur pour la carte
+        var mapDiv = document.querySelector('.js-plotly-plot');
+        if(mapDiv) {{
+            mapDiv.on('plotly_click', function(d) {{
+                var name = d.points[0].customdata[0];
+                draw(name);
+                document.getElementById('graph').scrollIntoView({{behavior:'smooth'}});
+            }});
+        }}
+        
+        // Pour les barres, c'est un peu plus dur sans ID unique, mais on tente le coup
+        // Sinon l'utilisateur peut cliquer sur la carte, c'est le principal.
+    </script></body></html>"""
 
-    def make_bar(sub: pd.DataFrame, color: str, did: str) -> str:
-        if sub.empty:
-            return ""
-        fig = px.bar(
-            sub.sort_values("percent_fill", ascending=False),
-            x="name",
-            y="percent_fill",
-            text="lbl",
-            color_discrete_sequence=[color],
-            height=320,
-        )
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=0, b=0),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            yaxis=dict(visible=False, range=[0, 110]),
-            xaxis=dict(title=None),
-        )
-        return _force_div_id(
-            fig.to_html(
-                full_html=False,
-                include_plotlyjs="cdn",
-                config={"displayModeBar": False},
-            ),
-            did,
-        )
+    with open("index.html", "w", encoding="utf-8") as f: f.write(html)
+    print("✅ Site généré (compatible Date/Heure séparés).")
 
-    cars = df_last[df_last["type"].str.lower() == "voiture"].copy()
-    bikes = df_last[df_last["type"].str.lower().isin(["velo", "vélo"])].copy()
-
-    html_cars = make_bar(cars, "#007AFF", "cars-div")
-    html_bikes = make_bar(bikes, "#FF9500", "bikes-div")
-
-    html = f"""<!DOCTYPE html>
-<html lang=\"fr\">
-<head>
-  <meta charset=\"UTF-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-  <title>Montpellier Live</title>
-  <style>
-    body {{ font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif; background:#F2F2F7; margin:0; padding:20px; color:#1C1C1E; }}
-    .top {{ display:flex; justify-content:center; align-items:center; gap:10px; margin-bottom:12px; }}
-    .pill {{ background:white; border-radius:999px; padding:6px 12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); font-size:13px; }}
-    .box {{ background:white; border-radius:16px; padding:20px; margin-bottom:20px; box-shadow:0 2px 10px rgba(0,0,0,0.05); }}
-    .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
-    @media(max-width:900px) {{ .grid {{ grid-template-columns:1fr; }} }}
-    h1 {{ margin:6px 0 0 0; text-align:center; }}
-    h3 {{ margin:0 0 10px 0; }}
-    .stability {{ display:flex; justify-content:space-between; gap:16px; }}
-    .stability .item {{ flex:1; text-align:center; padding:10px 12px; border-radius:12px; background:#F7F7FB; }}
-    .ok {{ color:#1f9d55; font-weight:700; }}
-    .bad {{ color:#d64545; font-weight:700; }}
-  </style>
-</head>
-<body>
-  <div class=\"top\">
-    <div class=\"pill\">🅿️ Montpellier Live</div>
-    <div class=\"pill\">MAJ: {date_maj}</div>
-  </div>
-
-  <div class=\"grid\">
-    <div class=\"box\">
-      <h3>🚲 vs 🚗</h3>
-      {html_inter}
-    </div>
-    <div class=\"box\">
-      <h3>📊 Stabilité (24h)</h3>
-      <div class=\"stability\">
-        <div class=\"item\">Le + stable<br><span class=\"ok\">{stable}</span></div>
-        <div class=\"item\">Le + instable<br><span class=\"bad\">{unstable}</span></div>
-      </div>
-    </div>
-  </div>
-
-  <div class=\"box\">
-    <h3>🗺️ Carte</h3>
-    {html_map}
-  </div>
-
-  <div class=\"box\">
-    <h3>📈 Historique</h3>
-    <div id=\"line-div\" style=\"height:320px;text-align:center;line-height:320px;color:#888\">Cliquez sur un parking/station</div>
-  </div>
-
-  <div class=\"grid\">
-    <div class=\"box\"><h3>🚗 Voitures</h3>{html_cars}</div>
-    <div class=\"box\"><h3>🚲 Vélos</h3>{html_bikes}</div>
-  </div>
-
-  <script>
-    var historyData = {json_data};
-
-    function pickColor(t) {{
-      t = (t || '').toLowerCase();
-      if (t.includes('voiture')) return '#007AFF';
-      return '#FF9500';
-    }}
-
-    function updateHistory(name) {{
-      var d = historyData[name];
-      if (!d) return;
-      Plotly.newPlot(
-        'line-div',
-        [{{ x: d.dates, y: d.values, type: 'scatter', line: {{ color: pickColor(d.type), width: 3 }} }}],
-        {{ title: name, margin: {{ l: 35, r: 10, t: 40, b: 30 }} }},
-        {{ displayModeBar: false, responsive: true }}
-      );
-    }}
-
-    window.onload = function() {{
-      try {{
-        var map = document.getElementById('map-div');
-        if (map) map.on('plotly_click', function(e) {{ updateHistory(e.points[0].customdata[0]); }});
-      }} catch (e) {{}}
-
-      try {{
-        var cars = document.getElementById('cars-div');
-        if (cars) cars.on('plotly_click', function(e) {{ updateHistory(e.points[0].x); }});
-      }} catch (e) {{}}
-
-      try {{
-        var bikes = document.getElementById('bikes-div');
-        if (bikes) bikes.on('plotly_click', function(e) {{ updateHistory(e.points[0].x); }});
-      }} catch (e) {{}}
-    }};
-  </script>
-</body>
-</html>"""
-
-    with open(OUT_HTML, "w", encoding="utf-8") as f:
-        f.write(html)
-
-    print(f"OK: site généré -> {OUT_HTML}")
-
-
-if __name__ == "__main__":
-    build_site()
+if __name__ == "__main__": generer()
