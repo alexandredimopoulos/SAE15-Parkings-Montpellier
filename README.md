@@ -1,40 +1,62 @@
-# SAE15 – Analyse des parkings de Montpellier
+# SAE15 — Parkings Montpellier (Dashboard)
 
-## Objectif
-Ce projet a pour but de collecter, sauvegarder, analyser et visualiser les données
-d’occupation des parkings de Montpellier à partir de l’API Open Data officielle.
+Ce dépôt génère un **site statique** (un `index.html`) qui affiche :
+- un comparatif **Voiture vs Vélo** (occupation moyenne par heure)
+- une **stabilité** (parking voiture le plus stable / le plus instable sur les dernières 24h)
+- une **carte** (coordonnées récupérées via l'API)
+- un **historique interactif** (clic sur carte ou barres)
+- des **classements** (occupation actuelle)
 
-La collecte est automatisée grâce à GitHub Actions.
-
----
-
-## Fonctionnement
-
-- Une action GitHub s’exécute toutes les 10 minutes
-- Une requête HTTP est envoyée à l’API
-- Les données sont ajoutées dans un fichier CSV horodaté
-- Le dépôt conserve l’historique complet
+Le tout est compatible avec le format CSV Excel :
+`Date;Heure;Type;Nom;Places_Libres;Places_Totales`
 
 ---
 
-## Structure du projet
+## 1) Installer les dépendances (local)
 
-- `collect_once.py` : collecte une mesure
-- `parking_lib.py` : librairie de fonctions statistiques
-- `analyse_data.py` : analyse des données collectées
-- `.github/workflows/collect.yml` : automatisation
-- `data/suivi_global.csv` : base de données
-
----
-
-## Choix techniques
-
-- Une seule requête par exécution (respect de l’API)
-- Horodatage UNIX
-- Données exploitables dans Excel / Python / Jupyter
-- Automatisation demandée explicitement dans le cadre de la SAE15
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 ---
 
-## Auteur
-BUT Réseaux & Télécommunications – IUT de Béziers
+## 2) Générer / mettre à jour les coordonnées (carte)
+
+```bash
+python sync_locations.py
+```
+Cela crée `data/locations.json`.
+
+---
+
+## 3) Générer le site
+
+```bash
+python generate_site.py
+```
+Tu obtiens `index.html` (ouvre-le dans ton navigateur).
+
+---
+
+## 4) Collecter une mesure (optionnel)
+
+```bash
+python collect_once.py
+python sync_locations.py
+python generate_site.py
+```
+
+---
+
+## 5) Automatisation GitHub Actions
+
+- `.github/workflows/collect.yml` : collecte toutes les 20 minutes + rebuild du site
+- `.github/workflows/init_data.yml` : rebuild manuel (si tu veux juste régénérer)
+
+Pour GitHub Pages :
+- soit tu sers `index.html` depuis la racine
+- soit tu peux déplacer vers `/docs` (option non activée ici)
+

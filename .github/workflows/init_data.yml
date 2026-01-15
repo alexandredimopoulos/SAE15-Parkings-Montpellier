@@ -1,43 +1,38 @@
-name: Récupération VRAIES Données (FORCE TOTALE)
+name: Régénérer le site (manuel)
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  fetch-real:
+  rebuild:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Important pour le force push
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          
-      - run: pip install requests
-      
-      # On s'assure qu'on est bien sur la branche main
-      - name: Checkout main
-        run: git checkout main
 
-      - name: Télécharger Vrai Historique
-        # Ce script utilise "w" (write) donc il écrase l'ancien fichier sale
-        run: python fetch_real_history.py
-
-      - name: Sauvegarder (Mode Bulldozer)
+      - name: Install dependencies
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # On ajoute le fichier propre
-          git add data/suivi_global.csv
-          
-          # On commit
-          git commit -m "Reset FORCE avec vraies données propres" || echo "Rien à changer"
-          
-          # ATTENTION : Pas de git pull ici (c'est ça qui plantait)
-          # On force l'envoi pour écraser tout conflit sur le serveur
-          git push origin main --force
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sync locations (for map)
+        run: python sync_locations.py
+
+      - name: Build site
+        run: python generate_site.py
+
+      - name: Commit & Push
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/locations.json index.html
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Rebuild site" && git push)

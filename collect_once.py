@@ -1,93 +1,107 @@
-import requests
-import time
-import os
-import csv
+"""Collecte une mesure instantanée (Voiture + Vélo) et l'ajoute à data/suivi_global.csv.
 
-# Configuration des deux API (Voitures et Vélos)
-URLS = [
+Format CSV (délimiteur ;) :
+Date;Heure;Type;Nom;Places_Libres;Places_Totales
+
+- Date au format YYYY-MM-DD
+- Heure au format HH:MM (heure locale France)
+
+Ce format correspond à ton fichier suivi_global.csv actuel.
+"""
+
+from __future__ import annotations
+
+import csv
+import os
+from datetime import datetime
+
+import requests
+
+BASE_URL = "https://portail-api-data.montpellier3m.fr"
+CSV_PATH = "data/suivi_global.csv"
+
+SOURCES = [
     {
         "type": "Voiture",
-        "url": "https://portail-api-data.montpellier3m.fr/offstreetparking?limit=1000",
-        "key_free": "availableSpotNumber",   # Clé JSON pour places libres
-        "key_total": "totalSpotNumber"       # Clé JSON pour capacité totale
+        "url": f"{BASE_URL}/offstreetparking?limit=1000",
+        "key_free": "availableSpotNumber",
+        "key_total": "totalSpotNumber",
     },
     {
         "type": "Velo",
-        "url": "https://portail-api-data.montpellier3m.fr/bikestation?limit=1000",
+        "url": f"{BASE_URL}/bikestation?limit=1000",
         "key_free": "availableBikeNumber",
-        "key_total": "totalSlotNumber"
-    }
+        "key_total": "totalSlotNumber",
+    },
 ]
 
-FICHIER = "data/suivi_global.csv"
 
-def collecter():
-    timestamp = int(time.time())
-    
-    # Création du dossier data s'il n'existe pas
+def _safe_name(item: dict) -> str:
+    name = item.get("name", {}).get("value")
+    if not name:
+        addr_val = item.get("address", {}).get("value")
+        if isinstance(addr_val, dict):
+            name = addr_val.get("streetAddress", "Inconnu")
+        else:
+            name = str(addr_val) if addr_val is not None else "Inconnu"
+    # éviter de casser le CSV
+    return str(name).replace(";", ",").strip()
+
+
+def collect_once() -> int:
     os.makedirs("data", exist_ok=True)
-    
-    lignes_a_ecrire = []
 
-    for source in URLS:
+    now = datetime.now()  # heure locale machine/runner
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
+
+    rows: list[list[object]] = []
+
+    for src in SOURCES:
         try:
-            print(f"Connexion à l'API {source['type']}...")
-            response = requests.get(source['url'], timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
-            for item in data:
-                # 1. Extraction du NOM (Gestion des cas particuliers)
-                nom = item.get("name", {}).get("value")
-                if not nom:
-                    # Pour certains vélos, le nom est dans l'adresse
-                    addr_val = item.get("address", {}).get("value")
-                    if isinstance(addr_val, dict):
-                        nom = addr_val.get("streetAddress", "Inconnu")
-                    else:
-                        nom = str(addr_val)
-                
-                # Nettoyage : on enlève les points-virgules qui casseraient le CSV
-                nom = str(nom).replace(";", ",").strip()
+            resp = requests.get(src["url"], timeout=15)
+            resp.raise_for_status()
+            items = resp.json()
 
-                # 2. Extraction des PLACES (Libres et Totales)
-                free_obj = item.get(source['key_free'], {})
-                places_libres = free_obj.get("value")
+            for item in items:
+                name = _safe_name(item)
 
-                total_obj = item.get(source['key_total'], {})
-                capacite_totale = total_obj.get("value")
+                free = item.get(src["key_free"], {}).get("value")
+                total = item.get(src["key_total"], {}).get("value")
 
-                # 3. Extraction GPS (Latitude / Longitude)
-                coords = item.get("location", {}).get("value", {}).get("coordinates", [None, None])
-                lon, lat = coords[0], coords[1]
+                if free is None or total is None:
+                    continue
 
-                # 4. Validation : On ne garde que si on a toutes les infos
-                if nom and places_libres is not None and capacite_totale is not None:
-                    lignes_a_ecrire.append([
-                        timestamp, 
-                        source['type'], 
-                        nom, 
-                        places_libres, 
-                        capacite_totale, 
-                        lat, 
-                        lon
-                    ])
-                    
+                try:
+                    free_i = int(free)
+                    total_i = int(total)
+                except Exception:
+                    continue
+
+                if total_i <= 0:
+                    continue
+
+                # sécurité: certains capteurs peuvent dépasser le total
+                if free_i > total_i:
+                    free_i = total_i
+                if free_i < 0:
+                    free_i = 0
+
+                rows.append([date_str, time_str, src["type"], name, free_i, total_i])
+
         except Exception as e:
-            print(f"Erreur sur l'API {source['type']} : {e}")
+            print(f"Erreur API {src['type']}: {e}")
 
-    # Écriture dans le fichier CSV (Mode 'append')
-    file_exists = os.path.exists(FICHIER)
-    
-    with open(FICHIER, "a", newline="", encoding="utf-8") as f:
+    file_exists = os.path.exists(CSV_PATH)
+    with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, delimiter=";")
-        
-        # Si le fichier est nouveau, on écrit l'en-tête complet
         if not file_exists:
-            writer.writerow(["timestamp", "type", "parking", "places_libres", "capacite_totale", "lat", "lon"])
-            
-        writer.writerows(lignes_a_ecrire)
-        print(f"Succès : {len(lignes_a_ecrire)} lignes ajoutées au CSV.")
+            writer.writerow(["Date", "Heure", "Type", "Nom", "Places_Libres", "Places_Totales"])
+        writer.writerows(rows)
+
+    print(f"OK: {len(rows)} lignes ajoutées dans {CSV_PATH}")
+    return len(rows)
+
 
 if __name__ == "__main__":
-    collecter()
+    collect_once()

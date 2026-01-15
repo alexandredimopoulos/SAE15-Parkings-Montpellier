@@ -2,9 +2,9 @@ name: Collecte et Mise à jour du Site
 
 on:
   schedule:
-    # Lance le script toutes les 20 minutes (pour ne pas saturer GitHub)
+    # Toutes les 20 minutes (à ajuster)
     - cron: "*/20 * * * *"
-  workflow_dispatch: # Permet de lancer manuellement le script depuis l'interface GitHub
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,29 +14,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Récupérer le code
-      uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Installer Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    - name: Installer les dépendances
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests pandas plotly
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Lancer la collecte des données
-      run: python collect_once.py
+      - name: Collect one sample
+        run: python collect_once.py
 
-    - name: Générer le site Web
-      run: python generate_site.py
+      - name: Sync locations (for map)
+        run: python sync_locations.py
 
-    - name: Sauvegarder et Publier (Commit & Push)
-      run: |
-        git config --global user.name 'GitHub Action'
-        git config --global user.email 'action@github.com'
-        git add data/suivi_global.csv index.html
-        # On ne commite que s'il y a des changements
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Mise à jour automatique des données" && git push)
+      - name: Build site
+        run: python generate_site.py
+
+      - name: Commit & Push
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/suivi_global.csv data/locations.json index.html
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update data + site" && git push)
