@@ -1,4 +1,4 @@
-name: Récupération VRAIES Données (1h)
+name: Récupération VRAIES Données (FORCE TOTALE)
 
 on: workflow_dispatch
 
@@ -6,20 +6,38 @@ jobs:
   fetch-real:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions: contents: write
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Important pour le force push
+
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
+        with:
+          python-version: "3.11"
+          
       - run: pip install requests
       
+      # On s'assure qu'on est bien sur la branche main
+      - name: Checkout main
+        run: git checkout main
+
       - name: Télécharger Vrai Historique
+        # Ce script utilise "w" (write) donc il écrase l'ancien fichier sale
         run: python fetch_real_history.py
 
-      - name: Sauvegarder (Force)
+      - name: Sauvegarder (Mode Bulldozer)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # On ajoute le fichier propre
           git add data/suivi_global.csv
-          git commit -m "Import VRAIES données (échantillon 1h)" || echo "Rien à changer"
-          git push -f origin main
+          
+          # On commit
+          git commit -m "Reset FORCE avec vraies données propres" || echo "Rien à changer"
+          
+          # ATTENTION : Pas de git pull ici (c'est ça qui plantait)
+          # On force l'envoi pour écraser tout conflit sur le serveur
+          git push origin main --force
