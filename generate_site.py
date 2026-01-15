@@ -5,7 +5,6 @@ from plotly.subplots import make_subplots
 import os
 import json
 from datetime import datetime, timedelta
-import parking_lib as lib
 
 FICHIER_CSV = "data/suivi_global.csv"
 FICHIER_HTML = "index.html"
@@ -19,274 +18,205 @@ def creer_page_erreur(message):
 
 def generer_html():
     if not os.path.exists(FICHIER_CSV):
-        creer_page_erreur("Attente des données (CSV introuvable)...")
+        creer_page_erreur("Attente des données...")
         return
 
     try:
-        df = pd.read_csv(FICHIER_CSV, delimiter=";")
+        # On lit le CSV (même s'il est gros, Python le gère bien)
+        df = pd.read_csv(FICHIER_CSV, delimiter=";", on_bad_lines='skip')
         df.columns = df.columns.str.strip()
     except Exception as e:
-        creer_page_erreur(f"Erreur de lecture CSV : {e}")
+        creer_page_erreur(f"Erreur CSV : {e}")
         return
 
-    required = ['timestamp', 'type', 'places_libres', 'capacite_totale', 'parking', 'lat', 'lon']
+    required = ['timestamp', 'type', 'places_libres', 'capacite_totale', 'parking']
     if not all(col in df.columns for col in required):
-        creer_page_erreur("Données incomplètes dans le CSV.")
+        creer_page_erreur("Données incomplètes.")
         return
 
-    # --- 1. PRÉPARATION ---
+    # --- 1. PRÉPARATION & NETTOYAGE ---
     df['date'] = pd.to_datetime(df['timestamp'], unit='s') + pd.Timedelta(hours=1)
-    
-    # Nettoyage doublons
-    df = df.sort_values('timestamp')
-    df = df.drop_duplicates(subset=['timestamp', 'parking'], keep='last')
-
     df['capacite_totale'] = pd.to_numeric(df['capacite_totale'], errors='coerce')
     df = df[df['capacite_totale'] > 0]
     df['percent_fill'] = (1 - (df['places_libres'] / df['capacite_totale'])) * 100
-    df['date_str'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    # --- 2. STATS ---
-    stats_df = df.groupby('parking')['percent_fill'].std().reset_index()
-    stats_df.columns = ['parking', 'ecart_type']
-    stats_df = stats_df.sort_values('ecart_type', ascending=False)
     
-    if not stats_df.empty:
-        top_instable = stats_df.iloc[0]['parking']
-        top_stable = stats_df.iloc[-1]['parking']
+    # --- OPTIMISATION MAJEURE : RÉDUCTION DES DONNÉES ---
+    # On crée une colonne "Heure" pour regrouper
+    df['heure_round'] = df['date'].dt.floor('30T') # On garde 1 point toutes les 30 min
+    
+    # On fait la moyenne par parking et par tranche de 30 min
+    # Cela réduit drastiquement le nombre de lignes pour le graphique
+    df_history = df.groupby(['parking', 'type', 'heure_round'])['percent_fill'].mean().reset_index()
+    df_history['date_str'] = df_history['heure_round'].dt.strftime('%Y-%m-%d %H:%M')
+
+    # --- 2. LOGIQUE INTERMODALITÉ ---
+    # Pour le graphique comparatif global, on moyenne encore plus large (1h)
+    df['heure_pile'] = df['date'].dt.floor('H')
+    df_inter = df.groupby(['heure_pile', 'type'])['percent_fill'].mean().reset_index()
+    
+    df_cars_agg = df_inter[df_inter['type'] == 'Voiture'].set_index('heure_pile')['percent_fill']
+    df_bikes_agg = df_inter[df_inter['type'] == 'Velo'].set_index('heure_pile')['percent_fill']
+    df_compare = pd.merge(df_cars_agg, df_bikes_agg, left_index=True, right_index=True, suffixes=('_car', '_bike'))
+    
+    # Graphique Intermodalité
+    if not df_compare.empty and len(df_compare) > 2:
+        fig_inter = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_inter.add_trace(go.Scatter(x=df_compare.index, y=df_compare['percent_fill_car'], name="Voiture", line=dict(color='#007AFF', width=3)), secondary_y=False)
+        fig_inter.add_trace(go.Scatter(x=df_compare.index, y=df_compare['percent_fill_bike'], name="Vélo", line=dict(color='#FF9500', width=3)), secondary_y=True)
+        fig_inter.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", y=1.1))
+        fig_inter.update_yaxes(showgrid=True, gridcolor='#eee', secondary_y=False)
+        fig_inter.update_yaxes(showgrid=False, secondary_y=True)
+        html_inter = fig_inter.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False})
     else:
-        top_instable, top_stable = "N/A", "N/A"
+        html_inter = "<p style='text-align:center; color:#888'>Données en cours de synchronisation...</p>"
 
-    # --- 3. INTERMODALITÉ ---
-    df_last = df[df['timestamp'] == df['timestamp'].max()].copy()
-    parkings_voiture = df_last[df_last['type'] == 'Voiture']
-    
-    target_parking = "Gare"
-    if target_parking not in parkings_voiture['parking'].values:
-        target_parking = parkings_voiture['parking'].iloc[0] if not parkings_voiture.empty else None
+    # --- 3. INDICATEURS DE STABILITÉ ---
+    # On calcule l'écart-type sur les données réduites (plus rapide)
+    stability = df_history.groupby('parking')['percent_fill'].std().sort_values()
+    if not stability.empty:
+        html_stable = f"""
+        <div style="display:flex; justify-content:space-around; text-align:center; margin-top:10px;">
+            <div><div style="font-size:12px; color:#8E8E93;">Le plus Stable ✅</div><div style="font-size:18px; font-weight:bold; color:#34C759;">{stability.index[0]}</div></div>
+            <div><div style="font-size:12px; color:#8E8E93;">Le plus Instable ⚠️</div><div style="font-size:18px; font-weight:bold; color:#FF3B30;">{stability.index[-1]}</div></div>
+        </div>"""
+    else:
+        html_stable = "<p>Calcul...</p>"
 
-    html_intermodalite = "<p>Pas assez de données.</p>"
-    
-    if target_parking:
-        info_p = df_last[df_last['parking'] == target_parking].iloc[0]
-        p_lat, p_lon = info_p['lat'], info_p['lon']
-
-        velos = df_last[df_last['type'] == 'Velo']
-        closest_velo = None
-        min_dist = float('inf')
-
-        for _, row in velos.iterrows():
-            d = lib.distance_gps(p_lat, p_lon, row['lat'], row['lon'])
-            if d < min_dist:
-                min_dist = d
-                closest_velo = row['parking']
-
-        if closest_velo:
-            data_car = df[df['parking'] == target_parking].set_index('date').resample('30min')['percent_fill'].mean().interpolate()
-            data_bike = df[df['parking'] == closest_velo].set_index('date').resample('30min')['percent_fill'].mean().interpolate()
-            
-            combined = pd.concat([data_car, data_bike], axis=1, keys=['car', 'bike']).dropna()
-            
-            if len(combined) > 2:
-                corr_score = lib.correlation(combined['car'].tolist(), combined['bike'].tolist())
-                corr_text = f"Corrélation : {corr_score:.2f}"
-            else:
-                corr_text = "Calcul..."
-            
-            fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
-            
-            fig_dual.add_trace(go.Scatter(
-                x=data_car.index, y=data_car.values, name=f"🚗 {target_parking}",
-                line=dict(color='#007AFF', width=3),
-                hovertemplate="<b>%{x|%H:%M}</b><br>Voiture: <b>%{y:.0f}%</b><extra></extra>"
-            ), secondary_y=False)
-            
-            fig_dual.add_trace(go.Scatter(
-                x=data_bike.index, y=data_bike.values, name=f"🚲 {closest_velo}",
-                line=dict(color='#FF9500', width=3),
-                hovertemplate="<b>%{x|%H:%M}</b><br>Vélo: <b>%{y:.0f}%</b><extra></extra>"
-            ), secondary_y=True)
-            
-            fig_dual.update_layout(
-                title=dict(text=f"Intermodalité : {target_parking} vs {closest_velo}<br><sup>{corr_text} (Distance: {min_dist*1000:.0f}m)</sup>"),
-                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            fig_dual.update_yaxes(title_text="Voiture (%)", secondary_y=False, showgrid=True, gridcolor='#eee')
-            fig_dual.update_yaxes(title_text="Vélo (%)", secondary_y=True, showgrid=False)
-            html_intermodalite = fig_dual.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True})
-
-    # --- 4. JS DATA ---
-    df_history = df.copy() 
+    # --- 4. EXPORT JSON LÉGER POUR LE JS ---
     history_dict = {}
+    # On utilise df_history (la version légère) au lieu de df
     for parking_name in df_history['parking'].unique():
-        data_p = df_history[df_history['parking'] == parking_name].sort_values('date')
+        data_p = df_history[df_history['parking'] == parking_name].sort_values('heure_round')
+        # On arrondit les valeurs à 1 décimale pour gagner encore de la place
+        values_rounded = [round(v, 1) for v in data_p['percent_fill'].tolist()]
         history_dict[parking_name] = {
             "dates": data_p['date_str'].tolist(),
-            "values": data_p['percent_fill'].tolist(),
+            "values": values_rounded,
             "type": data_p['type'].iloc[0]
         }
+    
+    # C'est ici que ça change tout : le JSON sera petit !
     json_history = json.dumps(history_dict)
 
-    # --- 5. VISU ---
+    # --- 5. ÉTAT ACTUEL (Barres & Carte) ---
     last_ts = df['timestamp'].max()
-    df_last_viz = df[df['timestamp'] == last_ts].copy()
+    df_last = df[df['timestamp'] == last_ts].copy()
     date_maj = (datetime.fromtimestamp(last_ts) + timedelta(hours=1)).strftime('%H:%M')
-    df_last_viz['label_text'] = df_last_viz['percent_fill'].apply(lambda x: f"{x:.0f}%")
+    df_last['label_text'] = df_last.apply(lambda x: f"{x['percent_fill']:.0f}%", axis=1)
 
     COLOR_MAP = {'Voiture': '#007AFF', 'Velo': '#FF9500'}
-    
+
     # Carte
-    df_map = df_last_viz.dropna(subset=['lat', 'lon'])
+    df_map = df_last.dropna(subset=['lat', 'lon'])
     fig_map = px.scatter_mapbox(
         df_map, lat="lat", lon="lon", color="type",
-        custom_data=['parking', 'percent_fill', 'places_libres', 'capacite_totale'],
+        custom_data=['parking', 'percent_fill'],
         color_discrete_map=COLOR_MAP, zoom=12, height=450
     )
-    fig_map.update_traces(
-        marker=dict(size=14, opacity=0.9),
-        hovertemplate="<b>%{customdata[0]}</b><br>Remplissage: <b>%{customdata[1]:.0f}%</b><br>Libre: %{customdata[2]} / %{customdata[3]}<extra></extra>"
-    )
-    fig_map.update_layout(mapbox_style="carto-positron", mapbox_center={"lat": 43.608, "lon": 3.877}, margin=dict(l=0, r=0, t=0, b=0), legend=dict(x=0.02, y=0.98))
+    fig_map.update_traces(marker=dict(size=15, opacity=0.9), hovertemplate="<b>%{customdata[0]}</b><br>Remplissage: %{customdata[1]:.0f}%<extra></extra>")
+    fig_map.update_layout(mapbox_style="carto-positron", mapbox_center={"lat": 43.608, "lon": 3.877}, margin=dict(l=0, r=0, t=0, b=0), legend=dict(yanchor="top", y=0.95, xanchor="left", x=0.05))
     html_map = fig_map.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id='map-div')
 
-    # Historique (Titre vide car géré par le HTML/JS)
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(x=[], y=[], mode='lines')) 
-    fig_line.update_layout(margin=dict(t=10), plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(range=[0, 105], showgrid=True, gridcolor='#eee'))
-    html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id='line-div')
+    # Graphique ligne vide par défaut (sera rempli par le JS)
+    default_text = "<div style='text-align:center; padding:50px; color:#888;'>Cliquez sur un parking ou une station pour voir l'historique</div>"
+    html_line = f"<div id='line-div'>{default_text}</div>"
+
+    # Si on a des données, on pré-affiche le premier graph
+    if not df_history.empty:
+        default_parking = df_history['parking'].iloc[0]
+        data_def = df_history[df_history['parking'] == default_parking]
+        fig_line = go.Figure()
+        fig_line.add_trace(go.Scatter(x=data_def['heure_round'], y=data_def['percent_fill'], mode='lines', name=default_parking, line=dict(color='#007AFF', width=3), fill='tozeroy', fillcolor='rgba(0, 122, 255, 0.1)'))
+        fig_line.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), title=dict(text=f"Évolution : <b>{default_parking}</b>"), yaxis=dict(range=[0, 105], showgrid=True, gridcolor='#eee'))
+        html_line = fig_line.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id='line-div')
 
     # Barres
-    def make_bar(type_p, color, div_id):
-        d = df_last_viz[df_last_viz['type'] == type_p].sort_values('percent_fill', ascending=False)
-        if d.empty: return ""
-        if type_p == 'Velo': 
-            d['parking'] = d['parking'].apply(lambda x: x[:15] + '..' if len(x) > 15 else x)
-        
-        fig = px.bar(d, x='parking', y='percent_fill', text='label_text', 
-                     color_discrete_sequence=[color],
-                     custom_data=['parking', 'places_libres', 'capacite_totale']) 
-        
-        fig.update_traces(
-            textposition='outside', cliponaxis=False,
-            hovertemplate="<b>%{customdata[0]}</b><br>Remplissage: %{y:.1f}%<br>Places: %{customdata[1]} / %{customdata[2]}<extra></extra>"
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)', 
-            margin=dict(l=0,r=0,t=0,b=80), 
-            yaxis=dict(visible=False, range=[0, 125]), 
-            xaxis=dict(tickangle=-45)
-        )
+    def create_bar_chart(data, color, div_id):
+        if data.empty: return "<p>Pas de données</p>"
+        data = data.sort_values('percent_fill', ascending=False)
+        fig = px.bar(data, x='parking', y='percent_fill', text='label_text', color_discrete_sequence=[color], custom_data=['places_libres', 'capacite_totale'])
+        fig.update_traces(textposition='outside', textfont_weight='bold', marker_cornerradius=5, cliponaxis=False, hovertemplate="<b>%{x}</b><br>%{customdata[0]} places dispo<br>%{y:.0f}% rempli<extra></extra>")
+        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=0, b=0), yaxis=dict(visible=False, range=[0, 125]), xaxis=dict(title=None, tickangle=-45))
         return fig.to_html(full_html=False, include_plotlyjs='cdn', config={'displayModeBar': False, 'responsive': True}, div_id=div_id)
 
-    html_cars = make_bar('Voiture', COLOR_MAP['Voiture'], 'cars-div')
-    html_bikes = make_bar('Velo', COLOR_MAP['Velo'], 'bikes-div')
+    html_cars = create_bar_chart(df_last[df_last['type'] == 'Voiture'], COLOR_MAP['Voiture'], 'cars-div')
+    df_bikes = df_last[df_last['type'] == 'Velo'].copy()
+    if not df_bikes.empty: df_bikes['parking'] = df_bikes['parking'].apply(lambda x: x[:15] + '..' if len(x) > 15 else x)
+    html_bikes = create_bar_chart(df_bikes, COLOR_MAP['Velo'], 'bikes-div')
 
+    # --- HTML FINAL ---
     html_content = f"""
     <!DOCTYPE html>
     <html lang="fr">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Dashboard SAE15</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>Suivi Parkings Montpellier</title>
         <style>
-            :root {{ --bg: #F2F2F7; --card: #FFF; --blue: #007AFF; }}
-            body {{ font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #1C1C1E; }}
-            .container {{ max-width: 1200px; margin: 0 auto; }}
-            h1 {{ text-align: center; margin-bottom: 30px; }}
-            .badge {{ background: #E5E5EA; padding: 4px 10px; border-radius: 12px; font-size: 12px; }}
-            .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 20px; }}
-            .card {{ background: var(--card); border-radius: 20px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }}
-            .card h2 {{ font-size: 18px; margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
-            .stat-box {{ display: flex; justify-content: space-around; text-align: center; margin: 15px 0; }}
-            .stat-val {{ font-size: 20px; font-weight: bold; }}
-            .stat-lbl {{ font-size: 12px; color: #8E8E93; }}
-            footer {{ text-align:center; color:#8E8E93; font-size:12px; margin-top:40px; }}
+            :root {{ --bg-color: #F2F2F7; --card-bg: #FFFFFF; --text-primary: #1C1C1E; --text-secondary: #8E8E93; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-primary); margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }}
+            header {{ position: sticky; top: 0; background: rgba(255,255,255,0.85); backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgba(0,0,0,0.1); padding: 15px 20px; z-index: 999; display: flex; justify-content: center; align-items: center; position: relative; }}
+            h1 {{ font-size: 20px; font-weight: 700; margin: 0; text-align: center; }}
+            .pill {{ background: #E5E5EA; color: var(--text-secondary); padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; position: absolute; right: 20px; }}
+            @media (max-width: 600px) {{ header {{ justify-content: space-between; }} .pill {{ position: static; }} h1 {{ font-size: 16px; }} }}
+            .container {{ max-width: 95%; margin: 0 auto; padding: 20px; }}
+            .card {{ background: var(--card-bg); border-radius: 22px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); overflow: hidden; }}
+            .card-header {{ display: flex; align-items: center; margin-bottom: 20px; justify-content: space-between; }}
+            .header-left {{ display: flex; align-items: center; }}
+            .icon {{ font-size: 24px; margin-right: 12px; }}
+            .card-title {{ font-size: 19px; font-weight: 700; margin: 0; }}
+            .card-subtitle {{ font-size: 14px; color: var(--text-secondary); margin-top: 2px; }}
+            footer {{ text-align: center; color: var(--text-secondary); font-size: 12px; padding: 40px; }}
+            .instruction {{ text-align:center; color: #007AFF; font-size:14px; margin-bottom:10px; font-weight:500; }}
+            .fs-btn {{ background: none; border: 1px solid #E5E5EA; border-radius: 8px; padding: 5px 10px; cursor: pointer; color: #007AFF; font-weight: 600; font-size: 13px; transition: background 0.2s; }}
+            .fs-btn:hover {{ background: #f0f0f5; }}
+            #map-container-wrapper.is-fullscreen {{ background: white; padding: 20px; display: flex; flex-direction: column; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; }}
+            #map-container-wrapper.is-fullscreen #map-div {{ height: 90vh !important; }}
+            .stats-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }}
+            @media (max-width: 768px) {{ .stats-grid {{ grid-template-columns: 1fr; }} }}
         </style>
     </head>
     <body>
+        <header><h1>🅿️ Suivi des Parkings de Montpellier en direct 🚲</h1><div class="pill">Maj : {date_maj}</div></header>
         <div class="container">
-            <h1>🅿️ Dashboard Analytique Montpellier <span class="badge">MAJ: {date_maj}</span></h1>
-            
-            <div class="grid">
-                <div class="card">
-                    <h2>🧠 Intermodalité : Voiture vs Vélo</h2>
-                    {html_intermodalite}
-                </div>
-                <div class="card">
-                    <h2>📊 Indicateurs de Stabilité : Le plus stable VS le moins stable</h2>
-                    <div class="stat-box">
-                        <div><div class="stat-lbl">Le plus Instable ⚠️</div><div class="stat-val" style="color:#FF3B30;">{top_instable}</div></div>
-                        <div><div class="stat-lbl">Le plus Stable ✅</div><div class="stat-val" style="color:#34C759;">{top_stable}</div></div>
-                    </div>
-                    <p style="font-size:13px; color:#666; margin-top:15px; background:#f9f9f9; padding:10px;">
-                        <b>Analyse :</b> "Odysseum" est instable car c'est un parking commercial (vide la nuit, bondé le jour). 
-                        "Triangle" est stable car c'est un parking de centre-ville utilisé en continu.
-                    </p>
-                </div>
+            <div class="stats-grid">
+                <div class="card"><div class="card-header"><div class="header-left"><span class="icon">🧠</span><div><h2 class="card-title">Intermodalité</h2><div class="card-subtitle">Voiture vs Vélo (7 jours)</div></div></div></div>{html_inter}</div>
+                <div class="card"><div class="card-header"><div class="header-left"><span class="icon">📊</span><div><h2 class="card-title">Stabilité</h2><div class="card-subtitle">Top & Flop</div></div></div></div>{html_stable}</div>
             </div>
-
-            <div class="card" style="margin-bottom:20px;"><h2>📍 Carte Interactive</h2>{html_map}</div>
-            
-            <div class="card" style="margin-bottom:20px;">
-                <h2 id="history-title">📈 Historique : Sélectionner un parking</h2>
-                {html_line}
+            <div class="card" style="padding:0;"><div id="map-container-wrapper"><div style="padding: 20px 20px 10px 20px; display:flex; justify-content:space-between; align-items:center;"><div><h2 class="card-title">Carte</h2><div class="card-subtitle">Localisation</div></div><button class="fs-btn" onclick="toggleFullScreen()">⛶ Plein écran</button></div><p class="instruction">👆 Cliquez sur un point pour voir son historique</p>{html_map}</div></div>
+            <div class="card"><div class="card-header"><div class="header-left"><span class="icon">📈</span><div><h2 class="card-title">Analyse Temporelle</h2><div class="card-subtitle">Historique détaillé</div></div></div></div>{html_line}</div>
+            <div class="stats-grid">
+                <div class="card"><div class="card-header"><div class="header-left"><span class="icon">🚗</span><div><h2 class="card-title">Voitures</h2><div class="card-subtitle">État actuel</div></div></div></div>{html_cars}</div>
+                <div class="card"><div class="card-header"><div class="header-left"><span class="icon">🚲</span><div><h2 class="card-title">Vélos</h2><div class="card-subtitle">État actuel</div></div></div></div>{html_bikes}</div>
             </div>
-
-            <div class="grid">
-                <div class="card"><h2>🚗 Voitures</h2>{html_cars}</div>
-                <div class="card"><h2>🚲 Vélos</h2>{html_bikes}</div>
-            </div>
-            <footer>Généré via Python & Plotly • Données OpenData Montpellier</footer>
+            <footer>SAE15 • Données OpenData Montpellier</footer>
         </div>
-
         <script>
-            window.addEventListener('load', function() {{
-                setTimeout(function() {{ window.dispatchEvent(new Event('resize')); }}, 500);
-            }});
-
-            var historyData = {json_history};
-            function updateChart(name) {{
-                var div = document.getElementById('line-div');
-                if (!historyData[name]) return;
-                var d = historyData[name];
-                var color = (d.type === 'Voiture') ? '#007AFF' : '#FF9500';
-                
-                // MODIFICATION 2 (SUITE) : Mise à jour du Titre H2 avec Emoji
-                var titleDOM = document.getElementById('history-title');
-                var emoji = (d.type === 'Voiture') ? '🚗' : '🚲';
-                if(titleDOM) titleDOM.innerText = "📈 Historique : " + name + " " + emoji;
-
-                var update = {{ 
-                    x: [d.dates], y: [d.values], name: [name], 
-                    'line.color': [color],
-                    hovertemplate: "<b>%{{x|%d/%m %H:%M}}</b><br>Remplissage: <b>%{{y:.0f}}%</b><extra></extra>"
-                }};
-                
-                // On laisse le titre Plotly vide pour ne pas faire doublon
-                Plotly.update(div, update, {{ title: '' }});
+            var historicalData = {json_history};
+            function toggleFullScreen() {{ var elem = document.getElementById('map-container-wrapper'); if (!document.fullscreenElement) {{ elem.requestFullscreen().catch(err => {{ alert(`Erreur : ${{err.message}}`); }}); elem.classList.add("is-fullscreen"); }} else {{ document.exitFullscreen(); elem.classList.remove("is-fullscreen"); }} }}
+            function updateLineChart(parkingName) {{
+                var lineDiv = document.getElementById('line-div');
+                if (historicalData[parkingName]) {{
+                    var newData = historicalData[parkingName];
+                    var newColor = (newData.type === 'Voiture') ? '#007AFF' : '#FF9500';
+                    var update = {{ x: [newData.dates], y: [newData.values], name: [parkingName], 'line.color': [newColor] }};
+                    var layoutUpdate = {{ 'title.text': 'Évolution : <b>' + parkingName + '</b>' }};
+                    Plotly.update(lineDiv, update, layoutUpdate);
+                    lineDiv.scrollIntoView({{behavior: "smooth", block: "center"}});
+                }}
             }}
-            
-            var mapDiv = document.getElementById('map-div');
-            if(mapDiv) mapDiv.on('plotly_click', function(d){{ updateChart(d.points[0].customdata[0]); }});
-            var carsDiv = document.getElementById('cars-div');
-            if(carsDiv) carsDiv.on('plotly_click', function(d){{ updateChart(d.points[0].customdata[0]); }});
-            var bikesDiv = document.getElementById('bikes-div');
-            if(bikesDiv) bikesDiv.on('plotly_click', function(d){{ 
-                var name = d.points[0].customdata[0].replace('..', ''); 
-                var realName = Object.keys(historyData).find(k => k.startsWith(name));
-                if(realName) updateChart(realName);
-            }});
-            var first = Object.keys(historyData).find(k => historyData[k].type === 'Voiture');
-            if(first) updateChart(first);
+            window.onload = function() {{
+                var mapDiv = document.getElementById('map-div'); var carsDiv = document.getElementById('cars-div'); var bikesDiv = document.getElementById('bikes-div');
+                if(mapDiv) {{ mapDiv.on('plotly_click', function(data){{ updateLineChart(data.points[0].customdata[0]); }}); }}
+                if(carsDiv) {{ carsDiv.on('plotly_click', function(data){{ updateLineChart(data.points[0].x); }}); }}
+                if(bikesDiv) {{ bikesDiv.on('plotly_click', function(data){{ var parkingName = data.points[0].x; if (!historicalData[parkingName]) {{ var cleanName = parkingName.replace('..', ''); for (var key in historicalData) {{ if (key.startsWith(cleanName)) {{ parkingName = key; break; }} }} }} updateLineChart(parkingName); }}); }}
+            }};
         </script>
-    </body>
-    </html>
-    """
+    </body></html>"""
+
     with open(FICHIER_HTML, "w", encoding="utf-8") as f:
         f.write(html_content)
-    print("Site V9 (Titres Dynamiques) généré !")
+    print("Site généré avec optimisation JSON (Taille réduite) !")
 
 if __name__ == "__main__":
     generer_html()
